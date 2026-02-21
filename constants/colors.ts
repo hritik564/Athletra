@@ -1,12 +1,33 @@
-// template
-const tintColorLight = "#2f95dc";
-
-export default {
+const Colors = {
+  primary: '#FF6B3D',
+  primaryLight: '#FF8A65',
+  primaryDark: '#E65100',
+  accent: '#00BFA5',
+  accentLight: '#64FFDA',
+  accentDark: '#00897B',
+  background: '#0A0E1A',
+  surface: '#141929',
+  surfaceLight: '#1E2438',
+  surfaceHighlight: '#2A3150',
+  text: '#FFFFFF',
+  textSecondary: '#8B95B0',
+  textMuted: '#5A6380',
+  success: '#4CAF50',
+  warning: '#FFB74D',
+  error: '#EF5350',
+  calorieRing: '#FF6B3D',
+  proteinRing: '#42A5F5',
+  carbsRing: '#FFD54F',
+  fatRing: '#EF5350',
+  waterRing: '#29B6F6',
+  border: '#1E2438',
   light: {
-    text: "#000",
-    background: "#fff",
-    tint: tintColorLight,
-    tabIconDefault: "#ccc",
-    tabIconSelected: tintColorLight,
+    text: '#FFFFFF',
+    background: '#0A0E1A',
+    tint: '#FF6B3D',
+    tabIconDefault: '#5A6380',
+    tabIconSelected: '#FF6B3D',
   },
 };
+
+export default Colors;

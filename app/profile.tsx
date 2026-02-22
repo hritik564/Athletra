@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  View, Text, StyleSheet, Pressable, TextInput, Alert, Platform,
+  View, Text, StyleSheet, Pressable, TextInput, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -44,23 +44,16 @@ export default function ProfileScreen() {
     router.back();
   };
 
-  const handleReset = () => {
-    Alert.alert(
-      'Reset All Data',
-      'This will delete all your tracked data and return to onboarding. Are you sure?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset',
-          style: 'destructive',
-          onPress: async () => {
-            await AsyncStorage.clear();
-            await updateProfile({ onboarded: false });
-            router.replace('/');
-          },
-        },
-      ],
-    );
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  const handleReset = async () => {
+    if (!showResetConfirm) {
+      setShowResetConfirm(true);
+      return;
+    }
+    await AsyncStorage.clear();
+    await updateProfile({ onboarded: false });
+    router.replace('/');
   };
 
   return (
@@ -124,9 +117,16 @@ export default function ProfileScreen() {
           ))}
         </View>
 
-        <Pressable style={styles.resetBtn} onPress={handleReset}>
-          <Text style={styles.resetBtnText}>Reset All Data</Text>
+        <Pressable style={[styles.resetBtn, showResetConfirm && styles.resetBtnConfirm]} onPress={handleReset}>
+          <Text style={styles.resetBtnText}>
+            {showResetConfirm ? 'Tap again to confirm reset' : 'Reset All Data'}
+          </Text>
         </Pressable>
+        {showResetConfirm && (
+          <Pressable onPress={() => setShowResetConfirm(false)}>
+            <Text style={styles.cancelText}>Cancel</Text>
+          </Pressable>
+        )}
       </KeyboardAwareScrollViewCompat>
     </View>
   );
@@ -163,4 +163,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.error, alignItems: 'center',
   },
   resetBtnText: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: Colors.error },
+  resetBtnConfirm: { backgroundColor: 'rgba(239,83,80,0.15)', borderColor: Colors.error },
+  cancelText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary, textAlign: 'center', marginTop: 12 },
 });

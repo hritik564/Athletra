@@ -23,6 +23,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "bubble.left.and.bubble.right", selected: "bubble.left.and.bubble.right.fill" }} />
         <Label>Coach</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="workouts">
+        <Icon sf={{ default: "dumbbell", selected: "dumbbell.fill" }} />
+        <Label>Workouts</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="progress">
         <Icon sf={{ default: "chart.line.uptrend.xyaxis", selected: "chart.line.uptrend.xyaxis" }} />
         <Label>Progress</Label>
@@ -86,6 +90,15 @@ function ClassicTabLayout() {
           title: "Coach",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? "chatbubbles" : "chatbubbles-outline"} size={24} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="workouts"
+        options={{
+          title: "Workouts",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "barbell" : "barbell-outline"} size={24} color={color} />
           ),
         }}
       />

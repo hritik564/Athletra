@@ -58,7 +58,9 @@ interface FitnessContextValue {
   addMeal: (meal: Omit<Meal, 'id' | 'time'>) => Promise<void>;
   removeMeal: (id: string) => Promise<void>;
   addWorkout: (workout: Omit<Workout, 'id' | 'date' | 'completed'>) => Promise<void>;
+  removeWorkout: (id: string) => Promise<void>;
   completeWorkout: (id: string) => Promise<void>;
+  toggleExercise: (workoutId: string, exerciseIndex: number) => Promise<void>;
   addWater: () => Promise<void>;
   removeWater: () => Promise<void>;
   stepsGoal: number;
@@ -236,7 +238,26 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
   const completeWorkout = useCallback(async (id: string) => {
     const updated = {
       ...todayData,
-      workouts: todayData.workouts.map(w => w.id === id ? { ...w, completed: true } : w),
+      workouts: todayData.workouts.map(w => w.id === id ? { ...w, completed: true, exercises: w.exercises.map(e => ({ ...e, completed: true })) } : w),
+    };
+    await saveTodayData(updated);
+  }, [todayData, saveTodayData]);
+
+  const removeWorkout = useCallback(async (id: string) => {
+    const updated = { ...todayData, workouts: todayData.workouts.filter(w => w.id !== id) };
+    await saveTodayData(updated);
+  }, [todayData, saveTodayData]);
+
+  const toggleExercise = useCallback(async (workoutId: string, exerciseIndex: number) => {
+    const updated = {
+      ...todayData,
+      workouts: todayData.workouts.map(w => {
+        if (w.id !== workoutId || w.completed) return w;
+        return {
+          ...w,
+          exercises: w.exercises.map((e, i) => i === exerciseIndex ? { ...e, completed: !e.completed } : e),
+        };
+      }),
     };
     await saveTodayData(updated);
   }, [todayData, saveTodayData]);
@@ -279,7 +300,7 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
   }), [todayData.meals]);
 
   const value = useMemo(() => ({
-    todayData, addMeal, removeMeal, addWorkout, completeWorkout, addWater, removeWater,
+    todayData, addMeal, removeMeal, addWorkout, removeWorkout, completeWorkout, toggleExercise, addWater, removeWater,
     stepsGoal, updateStepsGoal, pedometerAvailable,
     weightHistory, logWeight, streak, totalCaloriesConsumed, totalCaloriesBurned, macros,
   }), [todayData, weightHistory, streak, stepsGoal, pedometerAvailable, totalCaloriesConsumed, totalCaloriesBurned, macros]);

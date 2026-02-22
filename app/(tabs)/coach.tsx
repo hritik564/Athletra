@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput, Pressable, Platform,
-  ActivityIndicator, Animated,
+  ActivityIndicator, Animated, Alert,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,10 +11,35 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { fetch } from 'expo/fetch';
 import { useAudioRecorder, useAudioPlayer, AudioModule, RecordingPresets } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
+import { router } from 'expo-router';
 import Colors from '@/constants/colors';
 import { useUser } from '@/contexts/UserContext';
 import { useFitness } from '@/contexts/FitnessContext';
 import { getApiUrl } from '@/lib/query-client';
+
+interface ParsedMealPlan {
+  meals: Array<{
+    name: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  }>;
+}
+
+interface ParsedWorkoutPlan {
+  name: string;
+  duration: number;
+  calories_burned: number;
+  exercises: Array<{
+    name: string;
+    sets: number;
+    reps: number | string;
+    rest_seconds: number;
+    description: string;
+  }>;
+}
 
 interface Message {
   id: string;
@@ -22,6 +47,8 @@ interface Message {
   content: string;
   isVoice?: boolean;
   audioUri?: string;
+  savedMealPlan?: boolean;
+  savedWorkoutPlan?: boolean;
 }
 
 let messageCounter = 0;
@@ -30,8 +57,46 @@ function generateUniqueId(): string {
   return `msg-${Date.now()}-${messageCounter}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
-function MessageBubble({ message, onPlayAudio }: { message: Message; onPlayAudio?: (uri: string) => void }) {
+function parsePlans(content: string) {
+  let displayText = content;
+  let mealPlan: ParsedMealPlan | null = null;
+  let workoutPlan: ParsedWorkoutPlan | null = null;
+
+  const mealMatch = content.match(/<<<MEAL_PLAN>>>\s*([\s\S]*?)\s*<<<END_MEAL_PLAN>>>/);
+  if (mealMatch) {
+    try {
+      mealPlan = JSON.parse(mealMatch[1]);
+    } catch {}
+    displayText = displayText.replace(/<<<MEAL_PLAN>>>[\s\S]*?<<<END_MEAL_PLAN>>>/, '').trim();
+  }
+
+  const workoutMatch = content.match(/<<<WORKOUT_PLAN>>>\s*([\s\S]*?)\s*<<<END_WORKOUT_PLAN>>>/);
+  if (workoutMatch) {
+    try {
+      workoutPlan = JSON.parse(workoutMatch[1]);
+    } catch {}
+    displayText = displayText.replace(/<<<WORKOUT_PLAN>>>[\s\S]*?<<<END_WORKOUT_PLAN>>>/, '').trim();
+  }
+
+  return { displayText, mealPlan, workoutPlan };
+}
+
+function MessageBubble({
+  message,
+  onPlayAudio,
+  onSaveMealPlan,
+  onSaveWorkoutPlan,
+}: {
+  message: Message;
+  onPlayAudio?: (uri: string) => void;
+  onSaveMealPlan?: (plan: ParsedMealPlan) => void;
+  onSaveWorkoutPlan?: (plan: ParsedWorkoutPlan) => void;
+}) {
   const isUser = message.role === 'user';
+  const { displayText, mealPlan, workoutPlan } = isUser
+    ? { displayText: message.content, mealPlan: null, workoutPlan: null }
+    : parsePlans(message.content);
+
   return (
     <View style={[styles.bubbleRow, isUser && styles.bubbleRowUser]}>
       {!isUser && (
@@ -46,12 +111,46 @@ function MessageBubble({ message, onPlayAudio }: { message: Message; onPlayAudio
             <Text style={styles.voiceLabelText}>Voice</Text>
           </View>
         )}
-        <Text style={[styles.bubbleText, isUser && styles.bubbleTextUser]}>{message.content}</Text>
+        <Text style={[styles.bubbleText, isUser && styles.bubbleTextUser]}>{displayText}</Text>
         {message.audioUri && !isUser && (
           <Pressable style={styles.playBtn} onPress={() => onPlayAudio?.(message.audioUri!)}>
             <Ionicons name="volume-high" size={16} color={Colors.primary} />
             <Text style={styles.playBtnText}>Play</Text>
           </Pressable>
+        )}
+        {mealPlan && !message.savedMealPlan && (
+          <Pressable
+            style={styles.savePlanBtn}
+            onPress={() => onSaveMealPlan?.(mealPlan)}
+          >
+            <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.savePlanGradient}>
+              <Ionicons name="restaurant" size={16} color="#fff" />
+              <Text style={styles.savePlanText}>Save to Meals</Text>
+            </LinearGradient>
+          </Pressable>
+        )}
+        {mealPlan && message.savedMealPlan && (
+          <View style={styles.savedBadge}>
+            <Ionicons name="checkmark-circle" size={16} color={Colors.success} />
+            <Text style={styles.savedBadgeText}>Saved to Meals</Text>
+          </View>
+        )}
+        {workoutPlan && !message.savedWorkoutPlan && (
+          <Pressable
+            style={styles.savePlanBtn}
+            onPress={() => onSaveWorkoutPlan?.(workoutPlan)}
+          >
+            <LinearGradient colors={['#00BFA5', '#00897B']} style={styles.savePlanGradient}>
+              <Ionicons name="barbell" size={16} color="#fff" />
+              <Text style={styles.savePlanText}>Save to Workouts</Text>
+            </LinearGradient>
+          </Pressable>
+        )}
+        {workoutPlan && message.savedWorkoutPlan && (
+          <View style={styles.savedBadge}>
+            <Ionicons name="checkmark-circle" size={16} color={Colors.success} />
+            <Text style={styles.savedBadgeText}>Saved to Workouts</Text>
+          </View>
         )}
       </View>
     </View>
@@ -99,8 +198,8 @@ function RecordingIndicator({ duration }: { duration: number }) {
 }
 
 const QUICK_PROMPTS = [
-  "What should I eat next?",
-  "Give me a quick workout",
+  "Create a meal plan for today",
+  "Design a workout for me",
   "How am I doing today?",
   "Help me stay motivated",
 ];
@@ -108,7 +207,7 @@ const QUICK_PROMPTS = [
 export default function CoachScreen() {
   const insets = useSafeAreaInsets();
   const { profile } = useUser();
-  const { totalCaloriesConsumed, totalCaloriesBurned, macros, todayData, streak } = useFitness();
+  const { totalCaloriesConsumed, totalCaloriesBurned, macros, todayData, streak, addMeal, addWorkout } = useFitness();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -252,6 +351,62 @@ export default function CoachScreen() {
       }
     }
   }, [currentPlaybackUri, isPlaying]);
+
+  const handleSaveMealPlan = async (plan: ParsedMealPlan, messageId: string) => {
+    try {
+      for (const meal of plan.meals) {
+        await addMeal({
+          name: meal.name,
+          calories: meal.calories || 0,
+          protein: meal.protein || 0,
+          carbs: meal.carbs || 0,
+          fat: meal.fat || 0,
+          mealType: meal.mealType || 'lunch',
+        });
+      }
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, savedMealPlan: true } : m));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(
+        'Meal Plan Saved!',
+        `${plan.meals.length} meal${plan.meals.length > 1 ? 's' : ''} added to your Meals tab.`,
+        [
+          { text: 'View Meals', onPress: () => router.push('/(tabs)/meals') },
+          { text: 'OK' },
+        ]
+      );
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save meal plan. Please try again.');
+    }
+  };
+
+  const handleSaveWorkoutPlan = async (plan: ParsedWorkoutPlan, messageId: string) => {
+    try {
+      await addWorkout({
+        name: plan.name || 'AI Workout',
+        duration: plan.duration || 30,
+        calories_burned: plan.calories_burned || 200,
+        exercises: (plan.exercises || []).map(e => ({
+          name: e.name,
+          sets: e.sets || 3,
+          reps: e.reps || 10,
+          rest_seconds: e.rest_seconds || 30,
+          description: e.description || '',
+        })),
+      });
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, savedWorkoutPlan: true } : m));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(
+        'Workout Saved!',
+        `"${plan.name}" added to your Workouts tab.`,
+        [
+          { text: 'View Workouts', onPress: () => router.push('/(tabs)/workouts') },
+          { text: 'OK' },
+        ]
+      );
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save workout. Please try again.');
+    }
+  };
 
   const handlePlayAudio = (uri: string) => {
     setCurrentPlaybackUri(uri);
@@ -399,6 +554,8 @@ export default function CoachScreen() {
             <MessageBubble
               message={item}
               onPlayAudio={handlePlayAudio}
+              onSaveMealPlan={(plan) => handleSaveMealPlan(plan, item.id)}
+              onSaveWorkoutPlan={(plan) => handleSaveWorkoutPlan(plan, item.id)}
             />
           )}
           inverted={!!hasMessages}
@@ -500,6 +657,18 @@ const styles = StyleSheet.create({
     borderRadius: 12, alignSelf: 'flex-start',
   },
   playBtnText: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: Colors.primary },
+  savePlanBtn: { marginTop: 10, borderRadius: 10, overflow: 'hidden' },
+  savePlanGradient: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10,
+  },
+  savePlanText: { fontSize: 13, fontFamily: 'Outfit_700Bold', color: '#fff' },
+  savedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10,
+    paddingVertical: 8, paddingHorizontal: 12,
+    backgroundColor: 'rgba(76,175,80,0.1)', borderRadius: 10,
+  },
+  savedBadgeText: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: Colors.success },
   recordingBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
     paddingVertical: 10, backgroundColor: 'rgba(255,107,61,0.08)',

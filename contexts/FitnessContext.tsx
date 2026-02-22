@@ -1,5 +1,7 @@
-import { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef, ReactNode } from 'react';
+import { Platform, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Pedometer } from 'expo-sensors';
 
 export interface Meal {
   id: string;
@@ -63,6 +65,8 @@ interface FitnessContextValue {
   setSteps: (count: number) => Promise<void>;
   stepsGoal: number;
   updateStepsGoal: (goal: number) => Promise<void>;
+  pedometerAvailable: boolean;
+  sensorSteps: number;
   weightHistory: WeightEntry[];
   logWeight: (weight: number) => Promise<void>;
   streak: StreakData;
@@ -75,6 +79,12 @@ const FitnessContext = createContext<FitnessContextValue | null>(null);
 
 function getToday(): string {
   return new Date().toISOString().split('T')[0];
+}
+
+function getMidnight(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 let idCounter = 0;
@@ -99,17 +109,82 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
   const [streak, setStreak] = useState<StreakData>({ currentStreak: 0, longestStreak: 0, lastActiveDate: '' });
   const [stepsGoal, setStepsGoal] = useState(DEFAULT_STEPS_GOAL);
 
+  const [sensorSteps, setSensorSteps] = useState(0);
+  const [manualSteps, setManualSteps] = useState(0);
+  const [pedometerAvailable, setPedometerAvailable] = useState(false);
+  const sensorStepsRef = useRef(0);
+
   useEffect(() => {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    let subscription: { remove: () => void } | null = null;
+
+    const setupPedometer = async () => {
+      try {
+        const available = await Pedometer.isAvailableAsync();
+        setPedometerAvailable(available);
+        if (!available) return;
+
+        const fetchSensorSteps = async () => {
+          try {
+            const result = await Pedometer.getStepCountAsync(getMidnight(), new Date());
+            setSensorSteps(result.steps);
+            sensorStepsRef.current = result.steps;
+          } catch {}
+        };
+
+        await fetchSensorSteps();
+
+        subscription = Pedometer.watchStepCount((result) => {
+          fetchSensorSteps();
+        });
+
+        const appStateListener = AppState.addEventListener('change', (state) => {
+          if (state === 'active') {
+            fetchSensorSteps();
+          }
+        });
+
+        return () => {
+          appStateListener.remove();
+        };
+      } catch {
+        setPedometerAvailable(false);
+      }
+    };
+
+    let appStateCleanup: (() => void) | undefined;
+    setupPedometer().then((cleanup) => {
+      appStateCleanup = cleanup;
+    });
+
+    return () => {
+      if (subscription) subscription.remove();
+      if (appStateCleanup) appStateCleanup();
+    };
+  }, []);
+
+  useEffect(() => {
+    const totalSteps = sensorSteps + manualSteps;
+    if (totalSteps !== todayData.steps) {
+      const updated = { ...todayData, steps: Math.max(0, totalSteps) };
+      setTodayData(updated);
+      AsyncStorage.setItem(`day_${updated.date}`, JSON.stringify(updated));
+    }
+  }, [sensorSteps, manualSteps]);
+
   const loadData = async () => {
     const today = getToday();
-    const [dayStr, weightsStr, streakStr, stepsGoalStr] = await Promise.all([
+    const [dayStr, weightsStr, streakStr, stepsGoalStr, manualStepsStr] = await Promise.all([
       AsyncStorage.getItem(`day_${today}`),
       AsyncStorage.getItem('weight_history'),
       AsyncStorage.getItem('streak_data'),
       AsyncStorage.getItem('steps_goal'),
+      AsyncStorage.getItem(`manual_steps_${today}`),
     ]);
     if (dayStr) {
       const parsed = JSON.parse(dayStr);
@@ -118,6 +193,7 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
     if (weightsStr) setWeightHistory(JSON.parse(weightsStr));
     if (streakStr) setStreak(JSON.parse(streakStr));
     if (stepsGoalStr) setStepsGoal(JSON.parse(stepsGoalStr));
+    if (manualStepsStr) setManualSteps(JSON.parse(manualStepsStr));
   };
 
   const saveTodayData = useCallback(async (data: DayData) => {
@@ -185,15 +261,21 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
     await saveTodayData(updated);
   }, [todayData, saveTodayData]);
 
+  const saveManualSteps = useCallback(async (val: number) => {
+    setManualSteps(val);
+    await AsyncStorage.setItem(`manual_steps_${getToday()}`, JSON.stringify(val));
+  }, []);
+
   const addSteps = useCallback(async (count: number) => {
-    const updated = { ...todayData, steps: todayData.steps + count };
-    await saveTodayData(updated);
-  }, [todayData, saveTodayData]);
+    const newManual = manualSteps + count;
+    await saveManualSteps(newManual);
+  }, [manualSteps, saveManualSteps]);
 
   const setStepsValue = useCallback(async (count: number) => {
-    const updated = { ...todayData, steps: Math.max(0, count) };
-    await saveTodayData(updated);
-  }, [todayData, saveTodayData]);
+    const desired = Math.max(0, count);
+    const newManual = desired - sensorStepsRef.current;
+    await saveManualSteps(newManual);
+  }, [saveManualSteps]);
 
   const updateStepsGoal = useCallback(async (goal: number) => {
     const newGoal = Math.max(100, goal);
@@ -224,8 +306,9 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({
     todayData, addMeal, removeMeal, addWorkout, completeWorkout, addWater, removeWater,
     addSteps, setSteps: setStepsValue, stepsGoal, updateStepsGoal,
+    pedometerAvailable, sensorSteps,
     weightHistory, logWeight, streak, totalCaloriesConsumed, totalCaloriesBurned, macros,
-  }), [todayData, weightHistory, streak, stepsGoal, totalCaloriesConsumed, totalCaloriesBurned, macros]);
+  }), [todayData, weightHistory, streak, stepsGoal, pedometerAvailable, sensorSteps, totalCaloriesConsumed, totalCaloriesBurned, macros]);
 
   return <FitnessContext.Provider value={value}>{children}</FitnessContext.Provider>;
 }

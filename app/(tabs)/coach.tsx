@@ -57,6 +57,126 @@ function generateUniqueId(): string {
   return `msg-${Date.now()}-${messageCounter}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
+function FormattedText({ text, isUser }: { text: string; isUser: boolean }) {
+  const textColor = isUser ? '#fff' : Colors.text;
+  const mutedColor = isUser ? 'rgba(255,255,255,0.7)' : Colors.textSecondary;
+  const accentColor = isUser ? '#fff' : Colors.primary;
+
+  const paragraphs = text.split(/\n\n+/);
+  const elements: React.ReactNode[] = [];
+
+  paragraphs.forEach((paragraph, pIdx) => {
+    const lines = paragraph.split('\n');
+    lines.forEach((line, lIdx) => {
+      const key = `${pIdx}-${lIdx}`;
+      const trimmed = line.trim();
+      if (!trimmed) return;
+
+      const isHeader = /^#{1,3}\s+/.test(trimmed);
+      const isBullet = /^[-•]\s+/.test(trimmed);
+      const isNumbered = /^\d+[\.\)]\s+/.test(trimmed);
+
+      if (isHeader) {
+        const headerText = trimmed.replace(/^#{1,3}\s+/, '');
+        elements.push(
+          <Text key={key} style={[fmtStyles.header, { color: accentColor }]}>
+            {renderInlineFormatting(headerText, textColor, accentColor)}
+          </Text>
+        );
+      } else if (isBullet) {
+        const bulletText = trimmed.replace(/^[-•]\s+/, '');
+        elements.push(
+          <View key={key} style={fmtStyles.bulletRow}>
+            <Text style={[fmtStyles.bulletDot, { color: accentColor }]}>•</Text>
+            <Text style={[fmtStyles.bulletText, { color: textColor }]}>
+              {renderInlineFormatting(bulletText, textColor, accentColor)}
+            </Text>
+          </View>
+        );
+      } else if (isNumbered) {
+        const match = trimmed.match(/^(\d+)[\.\)]\s+(.*)/);
+        if (match) {
+          elements.push(
+            <View key={key} style={fmtStyles.bulletRow}>
+              <Text style={[fmtStyles.numberLabel, { color: accentColor }]}>{match[1]}.</Text>
+              <Text style={[fmtStyles.bulletText, { color: textColor }]}>
+                {renderInlineFormatting(match[2], textColor, accentColor)}
+              </Text>
+            </View>
+          );
+        }
+      } else {
+        elements.push(
+          <Text key={key} style={[fmtStyles.paragraph, { color: textColor }]}>
+            {renderInlineFormatting(trimmed, textColor, accentColor)}
+          </Text>
+        );
+      }
+    });
+
+    if (pIdx < paragraphs.length - 1) {
+      elements.push(<View key={`spacer-${pIdx}`} style={{ height: 8 }} />);
+    }
+  });
+
+  return <View style={fmtStyles.container}>{elements}</View>;
+}
+
+function renderInlineFormatting(text: string, textColor: string, accentColor: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const regex = /\*\*(.+?)\*\*/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(
+        <Text key={`t-${lastIndex}`} style={{ color: textColor }}>
+          {text.slice(lastIndex, match.index)}
+        </Text>
+      );
+    }
+    parts.push(
+      <Text key={`b-${match.index}`} style={{ fontFamily: 'Outfit_700Bold', color: accentColor }}>
+        {match[1]}
+      </Text>
+    );
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(
+      <Text key={`t-${lastIndex}`} style={{ color: textColor }}>
+        {text.slice(lastIndex)}
+      </Text>
+    );
+  }
+
+  return parts.length > 0 ? parts : [<Text key="plain" style={{ color: textColor }}>{text}</Text>];
+}
+
+const fmtStyles = StyleSheet.create({
+  container: { gap: 3 },
+  header: {
+    fontSize: 15, fontFamily: 'Outfit_700Bold', marginTop: 4, marginBottom: 2,
+  },
+  paragraph: {
+    fontSize: 14, fontFamily: 'Outfit_400Regular', lineHeight: 20,
+  },
+  bulletRow: {
+    flexDirection: 'row', paddingLeft: 4, gap: 6, marginVertical: 1,
+  },
+  bulletDot: {
+    fontSize: 14, fontFamily: 'Outfit_700Bold', lineHeight: 20, width: 10,
+  },
+  numberLabel: {
+    fontSize: 14, fontFamily: 'Outfit_700Bold', lineHeight: 20, width: 18,
+  },
+  bulletText: {
+    fontSize: 14, fontFamily: 'Outfit_400Regular', lineHeight: 20, flex: 1,
+  },
+});
+
 function parsePlans(content: string) {
   let displayText = content;
   let mealPlan: ParsedMealPlan | null = null;
@@ -111,7 +231,7 @@ function MessageBubble({
             <Text style={styles.voiceLabelText}>Voice</Text>
           </View>
         )}
-        <Text style={[styles.bubbleText, isUser && styles.bubbleTextUser]}>{displayText}</Text>
+        <FormattedText text={displayText} isUser={isUser} />
         {message.audioUri && !isUser && (
           <Pressable style={styles.playBtn} onPress={() => onPlayAudio?.(message.audioUri!)}>
             <Ionicons name="volume-high" size={16} color={Colors.primary} />

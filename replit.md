@@ -13,7 +13,7 @@ Preferred communication style: Simple, everyday language.
 ### Frontend (Expo / React Native)
 
 - **Framework**: Expo SDK 54 with React Native 0.81, using the new architecture (`newArchEnabled: true`)
-- **Routing**: Expo Router with file-based routing (`app/` directory). Uses typed routes and a tab-based layout for the main experience (`(tabs)/` group with Home, Meals, Coach, Progress tabs)
+- **Routing**: Expo Router with file-based routing (`app/` directory). Uses typed routes and a tab-based layout for the main experience (`(tabs)/` group with Home, Meals, Coach, Workouts, Progress tabs)
 - **State Management**: React Context for user profile (`UserContext`) and fitness data (`FitnessContext`). TanStack React Query for server-state and API calls
 - **Local Persistence**: AsyncStorage for offline-first data (user profile, meals, workouts, weight history, streaks). The app works without being connected to the backend for most tracking features
 - **Styling**: Custom dark theme defined in `constants/colors.ts` with an orange/teal accent palette. Uses `expo-linear-gradient` for gradient backgrounds, `react-native-svg` for charts and rings
@@ -60,6 +60,8 @@ All data stored in UserProfile via AsyncStorage and passed to AI coach for perso
 - User profile context (name, age, weight, height, goals, health conditions, dietary preferences, athlete status) is injected into every AI request for personalized responses
 - Today's fitness data (meals eaten, workouts completed, water intake) is also sent as context
 - Voice support: Audio recording on client → base64 encoding → server speech-to-text → AI response → optional text-to-speech back
+- **Saveable Plans**: When the AI generates meal or workout plans, it includes structured JSON blocks wrapped in `<<<MEAL_PLAN>>>...<<<END_MEAL_PLAN>>>` and `<<<WORKOUT_PLAN>>>...<<<END_WORKOUT_PLAN>>>` markers. The coach screen (`app/(tabs)/coach.tsx`) parses these markers and renders "Save to Meals" / "Save to Workouts" action buttons. Users can save plans with one tap, which adds them to their Meals or Workouts tabs for tracking. After saving, the button changes to a green "Saved" badge.
+- **Workouts Tab** (`app/(tabs)/workouts.tsx`): Dedicated tab for viewing saved workout plans with expandable exercise lists, per-exercise completion checkboxes, progress tracking, and complete/remove actions. FitnessContext provides `removeWorkout` and `toggleExercise` methods for this.
 
 ### Replit Integration Modules
 

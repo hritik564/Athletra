@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fetch } from 'expo/fetch';
@@ -117,6 +118,8 @@ export default function CoachScreen() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPlaybackUri, setCurrentPlaybackUri] = useState<string | null>(null);
   const inputRef = useRef<TextInput>(null);
+  let tabBarHeight = 0;
+  try { tabBarHeight = useBottomTabBarHeight(); } catch {}
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const player = useAudioPlayer(currentPlaybackUri);
@@ -346,7 +349,7 @@ export default function CoachScreen() {
   const isBusy = isStreaming || isProcessingVoice;
 
   return (
-    <KeyboardAvoidingView style={[styles.container, { backgroundColor: Colors.background }]} behavior="padding" keyboardVerticalOffset={0}>
+    <KeyboardAvoidingView style={[styles.container, { backgroundColor: Colors.background }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={tabBarHeight}>
       <View style={[styles.headerBar, { paddingTop: (insets.top || webTopInset) + 8 }]}>
         <View style={styles.headerLeft}>
           <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.headerAvatar}>
@@ -409,7 +412,7 @@ export default function CoachScreen() {
 
       {isRecording && <RecordingIndicator duration={recorder.currentTime} />}
 
-      <View style={[styles.inputArea, { paddingBottom: insets.bottom || (Platform.OS === 'web' ? 34 : 8) }]}>
+      <View style={[styles.inputArea, { marginBottom: Platform.OS === 'web' ? 84 : tabBarHeight || 80, paddingBottom: 8 }]}>
         <View style={styles.inputContainer}>
           {!isRecording ? (
             <>

@@ -37,7 +37,24 @@ When responding:
 Format guidelines:
 - Use short paragraphs for readability
 - Bold key numbers or actionable items with **bold**
-- Use bullet points for lists of exercises or meals`;
+- Use bullet points for lists of exercises or meals
+
+IMPORTANT - Saveable Plans:
+When the user asks you to create, generate, or suggest a meal plan or diet plan, ALWAYS include a structured JSON block so they can save it directly. Wrap it in <<<MEAL_PLAN>>> and <<<END_MEAL_PLAN>>> markers. The JSON should be an object with a "meals" array. Each meal object has: name (string), calories (number), protein (number in grams), carbs (number in grams), fat (number in grams), mealType (one of: breakfast, lunch, dinner, snack).
+
+Example:
+<<<MEAL_PLAN>>>
+{"meals":[{"name":"Greek Yogurt Bowl","calories":350,"protein":25,"carbs":40,"fat":10,"mealType":"breakfast"}]}
+<<<END_MEAL_PLAN>>>
+
+Similarly, when the user asks for a workout plan or exercise routine, include a structured JSON block wrapped in <<<WORKOUT_PLAN>>> and <<<END_WORKOUT_PLAN>>> markers. The JSON should be an object with: name (string), duration (number in minutes), calories_burned (number estimate), exercises (array of objects with: name, sets, reps (number or string like "30 sec"), rest_seconds, description).
+
+Example:
+<<<WORKOUT_PLAN>>>
+{"name":"Morning HIIT","duration":25,"calories_burned":280,"exercises":[{"name":"Jumping Jacks","sets":3,"reps":20,"rest_seconds":30,"description":"Full body warm-up"}]}
+<<<END_WORKOUT_PLAN>>>
+
+Always present the plan in a readable text format FIRST (with bullets, bold numbers, etc.), then include the JSON block at the end. This way the user sees a nice readable version AND can save the structured data. Only include these markers when generating actual plans the user requested. Do not include them in casual conversation.`;
 
 function buildProfileContext(userProfile: any): string {
   if (!userProfile) return '';

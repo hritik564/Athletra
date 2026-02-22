@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
 import OpenAI from "openai";
+import express from "express";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -31,21 +32,54 @@ When responding:
 - End coaching responses with a motivating insight or micro-challenge
 - If the user seems discouraged, focus on what they DID accomplish
 - Use the user's name when provided
+- Consider health conditions, dietary preferences, and athlete status in all recommendations
 
 Format guidelines:
 - Use short paragraphs for readability
 - Bold key numbers or actionable items with **bold**
 - Use bullet points for lists of exercises or meals`;
 
+function buildProfileContext(userProfile: any): string {
+  if (!userProfile) return '';
+  let ctx = `\n\nUser Profile:`;
+  ctx += `\n- Name: ${userProfile.name || 'Friend'}`;
+  ctx += `\n- Age: ${userProfile.age || 'Unknown'}`;
+  ctx += `\n- Weight: ${userProfile.weight || 'Unknown'} ${userProfile.weightUnit || 'kg'}`;
+  ctx += `\n- Height: ${userProfile.height || 'Unknown'} ${userProfile.heightUnit || 'cm'}`;
+  ctx += `\n- Goal: ${userProfile.goal || 'General fitness'}`;
+  ctx += `\n- Activity Level: ${userProfile.activityLevel || 'Moderate'}`;
+  ctx += `\n- Fitness Level: ${userProfile.fitnessLevel || 'intermediate'}`;
+  ctx += `\n- Daily Calorie Target: ${userProfile.calorieTarget || 2000} kcal`;
+  if (userProfile.isAthlete) {
+    ctx += `\n- Athlete: Yes, ${userProfile.sport || 'general'} (${userProfile.athleteLevel || 'amateur'})`;
+  }
+  if (userProfile.healthConditions && userProfile.healthConditions.length > 0) {
+    ctx += `\n- Health Conditions: ${userProfile.healthConditions.join(', ')}`;
+  }
+  if (userProfile.healthDetails) {
+    ctx += `\n- Health Details: ${userProfile.healthDetails}`;
+  }
+  if (userProfile.allergies) {
+    ctx += `\n- Allergies: ${userProfile.allergies}`;
+  }
+  if (userProfile.workoutEnvironment) {
+    ctx += `\n- Workout Environment: ${userProfile.workoutEnvironment}`;
+  }
+  if (userProfile.dietaryPreference) {
+    ctx += `\n- Dietary Preference: ${userProfile.dietaryPreference}`;
+  }
+  if (userProfile.dailyPattern) {
+    ctx += `\n- Daily Activity Pattern: ${userProfile.dailyPattern}`;
+  }
+  return ctx;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/coach/chat", async (req: Request, res: Response) => {
     try {
       const { messages, userProfile } = req.body;
 
-      let systemContent = COACH_SYSTEM_PROMPT;
-      if (userProfile) {
-        systemContent += `\n\nUser Profile:\n- Name: ${userProfile.name || 'Friend'}\n- Age: ${userProfile.age || 'Unknown'}\n- Weight: ${userProfile.weight || 'Unknown'} ${userProfile.weightUnit || 'kg'}\n- Height: ${userProfile.height || 'Unknown'} ${userProfile.heightUnit || 'cm'}\n- Goal: ${userProfile.goal || 'General fitness'}\n- Activity Level: ${userProfile.activityLevel || 'Moderate'}\n- Daily Calorie Target: ${userProfile.calorieTarget || 2000} kcal`;
-      }
+      let systemContent = COACH_SYSTEM_PROMPT + buildProfileContext(userProfile);
 
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -84,6 +118,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         res.status(500).json({ error: "Failed to process chat" });
       }
+    }
+  });
+
+  app.post("/api/coach/voice", express.json({ limit: "50mb" }), async (req: Request, res: Response) => {
+    try {
+      const { messages, userProfile, userText } = req.body;
+
+      let systemContent = COACH_SYSTEM_PROMPT + buildProfileContext(userProfile);
+      systemContent += `\n\nIMPORTANT: The user is speaking to you via voice. Keep your response conversational and concise (2-3 sentences max). Do not use markdown formatting, bold, or bullet points since this will be spoken aloud.`;
+
+      const chatMessages = [
+        { role: "system" as const, content: systemContent },
+        ...messages.map((m: any) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+        { role: "user" as const, content: userText },
+      ];
+
+      const textResponse = await openai.chat.completions.create({
+        model: "gpt-5-mini",
+        messages: chatMessages,
+        max_completion_tokens: 512,
+      });
+
+      const assistantText = textResponse.choices[0]?.message?.content || "I'm here to help!";
+
+      const audioResponse = await openai.chat.completions.create({
+        model: "gpt-audio",
+        modalities: ["text", "audio"],
+        audio: { voice: "nova", format: "wav" },
+        messages: [
+          { role: "system", content: "You are a text-to-speech assistant. Repeat the following text verbatim with natural, warm, encouraging intonation." },
+          { role: "user", content: `Repeat this verbatim: ${assistantText}` },
+        ],
+      });
+
+      const audioData = (audioResponse.choices[0]?.message as any)?.audio?.data ?? "";
+
+      res.json({
+        text: assistantText,
+        audio: audioData,
+      });
+    } catch (error) {
+      console.error("Voice chat error:", error);
+      res.status(500).json({ error: "Failed to process voice chat" });
+    }
+  });
+
+  app.post("/api/coach/transcribe", express.json({ limit: "50mb" }), async (req: Request, res: Response) => {
+    try {
+      const { audio } = req.body;
+      if (!audio) {
+        return res.status(400).json({ error: "Audio data required" });
+      }
+
+      const audioBuffer = Buffer.from(audio, "base64");
+
+      const { ensureCompatibleFormat } = await import("./replit_integrations/audio/client");
+      const { buffer: compatBuffer, format: inputFormat } = await ensureCompatibleFormat(audioBuffer);
+
+      const { toFile } = await import("openai");
+      const file = await toFile(compatBuffer, `audio.${inputFormat}`);
+      const transcription = await openai.audio.transcriptions.create({
+        file,
+        model: "gpt-4o-mini-transcribe",
+      });
+
+      res.json({ text: transcription.text });
+    } catch (error) {
+      console.error("Transcription error:", error);
+      res.status(500).json({ error: "Failed to transcribe audio" });
     }
   });
 

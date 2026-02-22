@@ -10,11 +10,21 @@ export interface UserProfile {
   heightUnit: 'cm' | 'ft';
   goal: 'lose_weight' | 'build_muscle' | 'stay_fit' | 'gain_energy';
   activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+  fitnessLevel: 'beginner' | 'intermediate' | 'advanced';
   calorieTarget: number;
+  isAthlete: boolean;
+  sport: string;
+  athleteLevel: string;
+  healthConditions: string[];
+  healthDetails: string;
+  allergies: string;
+  dailyPattern: string;
+  workoutEnvironment: 'gym' | 'home' | 'outdoors' | 'mixed';
+  dietaryPreference: 'none' | 'vegetarian' | 'vegan' | 'keto' | 'paleo' | 'gluten_free';
   onboarded: boolean;
 }
 
-const defaultProfile: UserProfile = {
+export const defaultProfile: UserProfile = {
   name: '',
   age: 25,
   weight: 70,
@@ -23,7 +33,17 @@ const defaultProfile: UserProfile = {
   heightUnit: 'cm',
   goal: 'stay_fit',
   activityLevel: 'moderate',
+  fitnessLevel: 'intermediate',
   calorieTarget: 2000,
+  isAthlete: false,
+  sport: '',
+  athleteLevel: '',
+  healthConditions: [],
+  healthDetails: '',
+  allergies: '',
+  dailyPattern: '',
+  workoutEnvironment: 'home',
+  dietaryPreference: 'none',
   onboarded: false,
 };
 

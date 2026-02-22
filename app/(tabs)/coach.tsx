@@ -1,13 +1,14 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput, Pressable, Platform,
-  ActivityIndicator,
+  ActivityIndicator, Animated,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fetch } from 'expo/fetch';
+import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { useUser } from '@/contexts/UserContext';
@@ -18,6 +19,8 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  isVoice?: boolean;
+  audioUri?: string;
 }
 
 let messageCounter = 0;
@@ -26,7 +29,7 @@ function generateUniqueId(): string {
   return `msg-${Date.now()}-${messageCounter}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message, onPlayAudio }: { message: Message; onPlayAudio?: (uri: string) => void }) {
   const isUser = message.role === 'user';
   return (
     <View style={[styles.bubbleRow, isUser && styles.bubbleRowUser]}>
@@ -36,7 +39,19 @@ function MessageBubble({ message }: { message: Message }) {
         </View>
       )}
       <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
+        {message.isVoice && isUser && (
+          <View style={styles.voiceLabel}>
+            <Ionicons name="mic" size={12} color={Colors.primary} />
+            <Text style={styles.voiceLabelText}>Voice</Text>
+          </View>
+        )}
         <Text style={[styles.bubbleText, isUser && styles.bubbleTextUser]}>{message.content}</Text>
+        {message.audioUri && !isUser && (
+          <Pressable style={styles.playBtn} onPress={() => onPlayAudio?.(message.audioUri!)}>
+            <Ionicons name="volume-high" size={16} color={Colors.primary} />
+            <Text style={styles.playBtnText}>Play</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -51,6 +66,33 @@ function TypingIndicator() {
       <View style={[styles.bubble, styles.bubbleAssistant, styles.typingBubble]}>
         <ActivityIndicator size="small" color={Colors.primary} />
       </View>
+    </View>
+  );
+}
+
+function RecordingIndicator({ duration }: { duration: number }) {
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.3, duration: 600, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  const secs = Math.floor(duration / 1000);
+  const mins = Math.floor(secs / 60);
+  const displaySecs = secs % 60;
+
+  return (
+    <View style={styles.recordingBar}>
+      <Animated.View style={[styles.recordingDot, { transform: [{ scale: pulseAnim }] }]} />
+      <Text style={styles.recordingTime}>{mins}:{displaySecs.toString().padStart(2, '0')}</Text>
+      <Text style={styles.recordingLabel}>Recording...</Text>
     </View>
   );
 }
@@ -70,13 +112,208 @@ export default function CoachScreen() {
   const [inputText, setInputText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [showTyping, setShowTyping] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const inputRef = useRef<TextInput>(null);
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
 
   const buildContextMessage = useCallback(() => {
     return `[Context: Today I've eaten ${totalCaloriesConsumed}/${profile.calorieTarget} kcal. Burned: ${totalCaloriesBurned} kcal. Macros: P${macros.protein}g, C${macros.carbs}g, F${macros.fat}g. Water: ${todayData.waterGlasses}/8. Workouts today: ${todayData.workouts.length} (${todayData.workouts.filter(w => w.completed).length} completed). Streak: ${streak.currentStreak} days.]`;
   }, [totalCaloriesConsumed, profile, totalCaloriesBurned, macros, todayData, streak]);
+
+  const playAudioFromBase64 = async (base64Audio: string) => {
+    try {
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+
+      const uri = `data:audio/wav;base64,${base64Audio}`;
+      const { sound } = await Audio.Sound.createAsync({ uri });
+      soundRef.current = sound;
+      setIsPlaying(true);
+
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if ('didJustFinish' in status && status.didJustFinish) {
+          setIsPlaying(false);
+        }
+      });
+
+      await sound.playAsync();
+    } catch (error) {
+      console.error('Audio playback error:', error);
+      setIsPlaying(false);
+    }
+  };
+
+  const playAudioFromUri = async (uri: string) => {
+    try {
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+
+      const { sound } = await Audio.Sound.createAsync({ uri });
+      soundRef.current = sound;
+      setIsPlaying(true);
+
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if ('didJustFinish' in status && status.didJustFinish) {
+          setIsPlaying(false);
+        }
+      });
+
+      await sound.playAsync();
+    } catch (error) {
+      console.error('Audio playback error:', error);
+      setIsPlaying(false);
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) return;
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      recordingRef.current = recording;
+      setIsRecording(true);
+      setRecordingDuration(0);
+
+      const startTime = Date.now();
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(Date.now() - startTime);
+      }, 100);
+
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recordingRef.current) return;
+
+    try {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+
+      setIsRecording(false);
+      setRecordingDuration(0);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      await recordingRef.current.stopAndUnloadAsync();
+      const uri = recordingRef.current.getURI();
+      recordingRef.current = null;
+
+      if (!uri) return;
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      });
+
+      setIsProcessingVoice(true);
+      setShowTyping(true);
+
+      const response = await globalThis.fetch(uri);
+      const blob = await response.blob();
+      const reader = new FileReader();
+
+      const base64Audio = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64 = result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      const baseUrl = getApiUrl();
+      const transcribeRes = await globalThis.fetch(`${baseUrl}api/coach/transcribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audio: base64Audio }),
+      });
+
+      if (!transcribeRes.ok) throw new Error('Transcription failed');
+      const { text: transcribedText } = await transcribeRes.json();
+
+      if (!transcribedText || transcribedText.trim().length === 0) {
+        setShowTyping(false);
+        setIsProcessingVoice(false);
+        return;
+      }
+
+      const userMessage: Message = {
+        id: generateUniqueId(),
+        role: 'user',
+        content: transcribedText,
+        isVoice: true,
+      };
+      setMessages(prev => [...prev, userMessage]);
+
+      const currentMessages = messages.map(m => ({ role: m.role, content: m.content }));
+      const contextPrefix = messages.length === 0 ? buildContextMessage() + '\n\n' : '';
+
+      const voiceRes = await globalThis.fetch(`${baseUrl}api/coach/voice`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: currentMessages,
+          userProfile: profile,
+          userText: contextPrefix + transcribedText,
+        }),
+      });
+
+      if (!voiceRes.ok) throw new Error('Voice response failed');
+      const voiceData = await voiceRes.json();
+
+      let audioUri = '';
+      if (voiceData.audio) {
+        audioUri = `data:audio/wav;base64,${voiceData.audio}`;
+      }
+
+      const assistantMessage: Message = {
+        id: generateUniqueId(),
+        role: 'assistant',
+        content: voiceData.text,
+        audioUri: audioUri || undefined,
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+
+      if (voiceData.audio) {
+        await playAudioFromBase64(voiceData.audio);
+      }
+
+    } catch (error) {
+      console.error('Voice processing error:', error);
+      setMessages(prev => [...prev, {
+        id: generateUniqueId(),
+        role: 'assistant',
+        content: "Sorry, I had trouble processing your voice. Please try again or type your message.",
+      }]);
+    } finally {
+      setShowTyping(false);
+      setIsProcessingVoice(false);
+    }
+  };
 
   const handleSend = async (text?: string) => {
     const messageText = text || inputText.trim();
@@ -159,6 +396,7 @@ export default function CoachScreen() {
 
   const reversedMessages = [...messages].reverse();
   const hasMessages = messages.length > 0;
+  const isBusy = isStreaming || isProcessingVoice;
 
   return (
     <KeyboardAvoidingView style={[styles.container, { backgroundColor: Colors.background }]} behavior="padding" keyboardVerticalOffset={0}>
@@ -169,9 +407,16 @@ export default function CoachScreen() {
           </LinearGradient>
           <View>
             <Text style={styles.headerTitle}>VitalCoach</Text>
-            <Text style={styles.headerSubtitle}>AI Fitness Coach</Text>
+            <Text style={styles.headerSubtitle}>
+              {isRecording ? 'Listening...' : isProcessingVoice ? 'Processing...' : 'AI Fitness Coach'}
+            </Text>
           </View>
         </View>
+        {isPlaying && (
+          <Pressable onPress={() => { soundRef.current?.stopAsync(); setIsPlaying(false); }}>
+            <Ionicons name="stop-circle" size={28} color={Colors.primary} />
+          </Pressable>
+        )}
       </View>
 
       {!hasMessages ? (
@@ -181,7 +426,7 @@ export default function CoachScreen() {
           </LinearGradient>
           <Text style={styles.emptyTitle}>Your AI Coach</Text>
           <Text style={styles.emptySubtitle}>
-            Ask me about nutrition, workouts, motivation, or anything wellness-related. I know your stats and adapt to you.
+            Type or tap the mic to speak. I know your stats and adapt to you.
           </Text>
           <View style={styles.quickPrompts}>
             {QUICK_PROMPTS.map((prompt, i) => (
@@ -200,7 +445,12 @@ export default function CoachScreen() {
         <FlatList
           data={reversedMessages}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <MessageBubble message={item} />}
+          renderItem={({ item }) => (
+            <MessageBubble
+              message={item}
+              onPlayAudio={(uri) => playAudioFromUri(uri)}
+            />
+          )}
           inverted={!!hasMessages}
           ListHeaderComponent={showTyping ? <TypingIndicator /> : null}
           contentContainerStyle={{ padding: 16, paddingBottom: 8, gap: 4 }}
@@ -210,27 +460,48 @@ export default function CoachScreen() {
         />
       )}
 
+      {isRecording && <RecordingIndicator duration={recordingDuration} />}
+
       <View style={[styles.inputArea, { paddingBottom: insets.bottom || (Platform.OS === 'web' ? 34 : 8) }]}>
         <View style={styles.inputContainer}>
-          <TextInput
-            ref={inputRef}
-            style={styles.input}
-            placeholder="Ask your coach..."
-            placeholderTextColor={Colors.textMuted}
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            maxLength={1000}
-            blurOnSubmit={false}
-            onSubmitEditing={() => handleSend()}
-          />
-          <Pressable
-            onPress={() => { handleSend(); inputRef.current?.focus(); }}
-            disabled={isStreaming || !inputText.trim()}
-            style={[styles.sendBtn, (!inputText.trim() || isStreaming) && styles.sendBtnDisabled]}
-          >
-            <Ionicons name="send" size={18} color="#fff" />
-          </Pressable>
+          {!isRecording ? (
+            <>
+              <Pressable
+                onPress={startRecording}
+                disabled={isBusy}
+                style={[styles.micBtn, isBusy && styles.micBtnDisabled]}
+              >
+                <Ionicons name="mic" size={22} color={isBusy ? Colors.textMuted : Colors.primary} />
+              </Pressable>
+              <TextInput
+                ref={inputRef}
+                style={styles.input}
+                placeholder="Ask your coach..."
+                placeholderTextColor={Colors.textMuted}
+                value={inputText}
+                onChangeText={setInputText}
+                multiline
+                maxLength={1000}
+                blurOnSubmit={false}
+                onSubmitEditing={() => handleSend()}
+                editable={!isBusy}
+              />
+              <Pressable
+                onPress={() => { handleSend(); inputRef.current?.focus(); }}
+                disabled={isBusy || !inputText.trim()}
+                style={[styles.sendBtn, (!inputText.trim() || isBusy) && styles.sendBtnDisabled]}
+              >
+                <Ionicons name="send" size={18} color="#fff" />
+              </Pressable>
+            </>
+          ) : (
+            <Pressable onPress={stopRecording} style={styles.stopRecordingBtn}>
+              <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.stopRecordingGradient}>
+                <Ionicons name="stop" size={24} color="#fff" />
+                <Text style={styles.stopRecordingText}>Stop & Send</Text>
+              </LinearGradient>
+            </Pressable>
+          )}
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -268,8 +539,32 @@ const styles = StyleSheet.create({
   bubbleText: { fontSize: 15, fontFamily: 'Outfit_400Regular', color: Colors.text, lineHeight: 21 },
   bubbleTextUser: { color: '#fff' },
   typingBubble: { paddingHorizontal: 20, paddingVertical: 14 },
+  voiceLabel: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4,
+    opacity: 0.7,
+  },
+  voiceLabelText: { fontSize: 11, fontFamily: 'Outfit_500Medium', color: '#fff' },
+  playBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8,
+    paddingVertical: 6, paddingHorizontal: 10, backgroundColor: 'rgba(255,107,61,0.12)',
+    borderRadius: 12, alignSelf: 'flex-start',
+  },
+  playBtnText: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: Colors.primary },
+  recordingBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    paddingVertical: 10, backgroundColor: 'rgba(255,107,61,0.08)',
+    borderTopWidth: 1, borderTopColor: 'rgba(255,107,61,0.2)',
+  },
+  recordingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.error },
+  recordingTime: { fontSize: 16, fontFamily: 'Outfit_700Bold', color: Colors.primary },
+  recordingLabel: { fontSize: 14, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary },
   inputArea: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.border },
   inputContainer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  micBtn: {
+    width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,107,61,0.12)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  micBtnDisabled: { opacity: 0.4 },
   input: {
     flex: 1, minHeight: 42, maxHeight: 100, backgroundColor: Colors.surface,
     borderRadius: 21, paddingHorizontal: 16, paddingVertical: 10, color: Colors.text,
@@ -277,4 +572,10 @@ const styles = StyleSheet.create({
   },
   sendBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
   sendBtnDisabled: { opacity: 0.4 },
+  stopRecordingBtn: { flex: 1 },
+  stopRecordingGradient: {
+    height: 50, borderRadius: 25, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 8,
+  },
+  stopRecordingText: { fontSize: 16, fontFamily: 'Outfit_700Bold', color: '#fff' },
 });

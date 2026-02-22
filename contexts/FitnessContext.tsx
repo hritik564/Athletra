@@ -36,6 +36,7 @@ export interface DayData {
   meals: Meal[];
   workouts: Workout[];
   waterGlasses: number;
+  steps: number;
   weight?: number;
 }
 
@@ -58,6 +59,10 @@ interface FitnessContextValue {
   completeWorkout: (id: string) => Promise<void>;
   addWater: () => Promise<void>;
   removeWater: () => Promise<void>;
+  addSteps: (count: number) => Promise<void>;
+  setSteps: (count: number) => Promise<void>;
+  stepsGoal: number;
+  updateStepsGoal: (goal: number) => Promise<void>;
   weightHistory: WeightEntry[];
   logWeight: (weight: number) => Promise<void>;
   streak: StreakData;
@@ -78,17 +83,21 @@ function generateId(): string {
   return `${Date.now()}-${idCounter}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
+const DEFAULT_STEPS_GOAL = 10000;
+
 const emptyDay = (date: string): DayData => ({
   date,
   meals: [],
   workouts: [],
   waterGlasses: 0,
+  steps: 0,
 });
 
 export function FitnessProvider({ children }: { children: ReactNode }) {
   const [todayData, setTodayData] = useState<DayData>(emptyDay(getToday()));
   const [weightHistory, setWeightHistory] = useState<WeightEntry[]>([]);
   const [streak, setStreak] = useState<StreakData>({ currentStreak: 0, longestStreak: 0, lastActiveDate: '' });
+  const [stepsGoal, setStepsGoal] = useState(DEFAULT_STEPS_GOAL);
 
   useEffect(() => {
     loadData();
@@ -96,14 +105,19 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
 
   const loadData = async () => {
     const today = getToday();
-    const [dayStr, weightsStr, streakStr] = await Promise.all([
+    const [dayStr, weightsStr, streakStr, stepsGoalStr] = await Promise.all([
       AsyncStorage.getItem(`day_${today}`),
       AsyncStorage.getItem('weight_history'),
       AsyncStorage.getItem('streak_data'),
+      AsyncStorage.getItem('steps_goal'),
     ]);
-    if (dayStr) setTodayData(JSON.parse(dayStr));
+    if (dayStr) {
+      const parsed = JSON.parse(dayStr);
+      setTodayData({ steps: 0, ...parsed });
+    }
     if (weightsStr) setWeightHistory(JSON.parse(weightsStr));
     if (streakStr) setStreak(JSON.parse(streakStr));
+    if (stepsGoalStr) setStepsGoal(JSON.parse(stepsGoalStr));
   };
 
   const saveTodayData = useCallback(async (data: DayData) => {
@@ -171,6 +185,22 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
     await saveTodayData(updated);
   }, [todayData, saveTodayData]);
 
+  const addSteps = useCallback(async (count: number) => {
+    const updated = { ...todayData, steps: todayData.steps + count };
+    await saveTodayData(updated);
+  }, [todayData, saveTodayData]);
+
+  const setStepsValue = useCallback(async (count: number) => {
+    const updated = { ...todayData, steps: Math.max(0, count) };
+    await saveTodayData(updated);
+  }, [todayData, saveTodayData]);
+
+  const updateStepsGoal = useCallback(async (goal: number) => {
+    const newGoal = Math.max(100, goal);
+    setStepsGoal(newGoal);
+    await AsyncStorage.setItem('steps_goal', JSON.stringify(newGoal));
+  }, []);
+
   const logWeight = useCallback(async (weight: number) => {
     const entry: WeightEntry = { date: getToday(), weight };
     const existing = weightHistory.filter(w => w.date !== getToday());
@@ -193,8 +223,9 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({
     todayData, addMeal, removeMeal, addWorkout, completeWorkout, addWater, removeWater,
+    addSteps, setSteps: setStepsValue, stepsGoal, updateStepsGoal,
     weightHistory, logWeight, streak, totalCaloriesConsumed, totalCaloriesBurned, macros,
-  }), [todayData, weightHistory, streak, totalCaloriesConsumed, totalCaloriesBurned, macros]);
+  }), [todayData, weightHistory, streak, stepsGoal, totalCaloriesConsumed, totalCaloriesBurned, macros]);
 
   return <FitnessContext.Provider value={value}>{children}</FitnessContext.Provider>;
 }

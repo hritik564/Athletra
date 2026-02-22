@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from 'react-native';
+import { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, TextInput, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -68,7 +69,11 @@ function QuickAction({ icon, label, onPress, gradient }: { icon: string; label: 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { profile } = useUser();
-  const { todayData, totalCaloriesConsumed, totalCaloriesBurned, macros, streak, addWater, removeWater } = useFitness();
+  const { todayData, totalCaloriesConsumed, totalCaloriesBurned, macros, streak, addWater, removeWater, addSteps, setSteps, stepsGoal, updateStepsGoal } = useFitness();
+  const [showStepsInput, setShowStepsInput] = useState(false);
+  const [stepsInput, setStepsInput] = useState('');
+  const [showGoalEdit, setShowGoalEdit] = useState(false);
+  const [goalInput, setGoalInput] = useState(String(stepsGoal));
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
 
   const greeting = (() => {
@@ -165,6 +170,133 @@ export default function DashboardScreen() {
         </View>
       </View>
 
+      <View style={styles.stepsSection}>
+        <View style={styles.stepsHeader}>
+          <View style={styles.stepsHeaderLeft}>
+            <Ionicons name="footsteps" size={20} color={Colors.accent} />
+            <Text style={styles.sectionTitleInline}>Steps</Text>
+          </View>
+          <Pressable onPress={() => { setGoalInput(String(stepsGoal)); setShowGoalEdit(true); }}>
+            <Text style={styles.stepsGoalBtn}>Goal: {stepsGoal.toLocaleString()}</Text>
+          </Pressable>
+        </View>
+        <View style={styles.stepsCard}>
+          <View style={styles.stepsRingContainer}>
+            <Svg width={100} height={100}>
+              <Circle
+                cx={50} cy={50} r={42}
+                stroke={Colors.surfaceLight} strokeWidth={8} fill="none"
+              />
+              <Circle
+                cx={50} cy={50} r={42}
+                stroke={Colors.accent} strokeWidth={8} fill="none"
+                strokeDasharray={`${2 * Math.PI * 42}`}
+                strokeDashoffset={2 * Math.PI * 42 * (1 - Math.min(todayData.steps / stepsGoal, 1))}
+                strokeLinecap="round"
+                transform="rotate(-90 50 50)"
+              />
+            </Svg>
+            <View style={styles.stepsRingCenter}>
+              <Text style={styles.stepsCount}>{todayData.steps.toLocaleString()}</Text>
+              <Text style={styles.stepsLabel}>steps</Text>
+            </View>
+          </View>
+          <View style={styles.stepsControls}>
+            <Pressable
+              style={styles.stepsQuickBtn}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); addSteps(500); }}
+            >
+              <Text style={styles.stepsQuickBtnText}>+500</Text>
+            </Pressable>
+            <Pressable
+              style={styles.stepsQuickBtn}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); addSteps(1000); }}
+            >
+              <Text style={styles.stepsQuickBtnText}>+1000</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.stepsQuickBtn, styles.stepsEditBtn]}
+              onPress={() => { setStepsInput(String(todayData.steps)); setShowStepsInput(true); }}
+            >
+              <Ionicons name="create-outline" size={16} color={Colors.primary} />
+            </Pressable>
+          </View>
+          <Text style={styles.stepsRemaining}>
+            {todayData.steps >= stepsGoal
+              ? 'Goal reached!'
+              : `${(stepsGoal - todayData.steps).toLocaleString()} to go`}
+          </Text>
+        </View>
+      </View>
+
+      <Modal visible={showStepsInput} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setShowStepsInput(false)}>
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>Enter Steps</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={stepsInput}
+              onChangeText={setStepsInput}
+              keyboardType="number-pad"
+              placeholder="e.g. 5000"
+              placeholderTextColor={Colors.textMuted}
+              autoFocus
+            />
+            <View style={styles.modalButtons}>
+              <Pressable style={styles.modalCancel} onPress={() => setShowStepsInput(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={styles.modalSave}
+                onPress={() => {
+                  const val = parseInt(stepsInput);
+                  if (!isNaN(val) && val >= 0) { setSteps(val); }
+                  setShowStepsInput(false);
+                }}
+              >
+                <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.modalSaveGradient}>
+                  <Text style={styles.modalSaveText}>Save</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={showGoalEdit} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setShowGoalEdit(false)}>
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>Steps Goal</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={goalInput}
+              onChangeText={setGoalInput}
+              keyboardType="number-pad"
+              placeholder="e.g. 10000"
+              placeholderTextColor={Colors.textMuted}
+              autoFocus
+            />
+            <View style={styles.modalButtons}>
+              <Pressable style={styles.modalCancel} onPress={() => setShowGoalEdit(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={styles.modalSave}
+                onPress={() => {
+                  const val = parseInt(goalInput);
+                  if (!isNaN(val) && val >= 100) { updateStepsGoal(val); }
+                  setShowGoalEdit(false);
+                }}
+              >
+                <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.modalSaveGradient}>
+                  <Text style={styles.modalSaveText}>Save</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
       <Text style={styles.sectionTitle}>Quick Actions</Text>
       <View style={styles.quickActionsRow}>
         <QuickAction icon="restaurant" label="Log Meal" onPress={() => router.push('/(tabs)/meals')} gradient={[Colors.primary, Colors.primaryDark]} />
@@ -240,4 +372,48 @@ const styles = StyleSheet.create({
   workoutInfo: { flex: 1 },
   workoutName: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: Colors.text },
   workoutMeta: { fontSize: 13, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary, marginTop: 2 },
+  stepsSection: { paddingHorizontal: 20, marginBottom: 24 },
+  stepsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  stepsHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sectionTitleInline: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: Colors.text },
+  stepsGoalBtn: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.accent, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: 'rgba(0,191,165,0.1)', borderRadius: 10 },
+  stepsCard: {
+    backgroundColor: Colors.surface, borderRadius: 16, padding: 20,
+    alignItems: 'center', borderWidth: 1, borderColor: Colors.border,
+  },
+  stepsRingContainer: { position: 'relative' as const, width: 100, height: 100, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  stepsRingCenter: { position: 'absolute' as const, alignItems: 'center' },
+  stepsCount: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: Colors.text },
+  stepsLabel: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary, marginTop: -2 },
+  stepsControls: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  stepsQuickBtn: {
+    paddingHorizontal: 18, paddingVertical: 10, backgroundColor: Colors.surfaceLight,
+    borderRadius: 20, borderWidth: 1, borderColor: Colors.border,
+  },
+  stepsQuickBtnText: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: Colors.accent },
+  stepsEditBtn: { paddingHorizontal: 14 },
+  stepsRemaining: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary },
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center',
+    alignItems: 'center', padding: 32,
+  },
+  modalContent: {
+    width: '100%', backgroundColor: Colors.surface, borderRadius: 20, padding: 24,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  modalTitle: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: Colors.text, marginBottom: 16, textAlign: 'center' },
+  modalInput: {
+    height: 52, backgroundColor: Colors.background, borderRadius: 14, paddingHorizontal: 16,
+    color: Colors.text, fontSize: 18, fontFamily: 'Outfit_500Medium', textAlign: 'center',
+    borderWidth: 1, borderColor: Colors.border, marginBottom: 20,
+  },
+  modalButtons: { flexDirection: 'row', gap: 12 },
+  modalCancel: {
+    flex: 1, height: 48, borderRadius: 14, backgroundColor: Colors.surfaceLight,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  modalCancelText: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: Colors.textSecondary },
+  modalSave: { flex: 1 },
+  modalSaveGradient: { height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  modalSaveText: { fontSize: 15, fontFamily: 'Outfit_700Bold', color: '#fff' },
 });

@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fetch } from 'expo/fetch';
-import { Audio } from 'expo-av';
+import { useAudioRecorder, useAudioPlayer, AudioModule, RecordingPresets } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { useUser } from '@/contexts/UserContext';
@@ -84,7 +84,7 @@ function RecordingIndicator({ duration }: { duration: number }) {
     return () => anim.stop();
   }, []);
 
-  const secs = Math.floor(duration / 1000);
+  const secs = Math.floor(duration);
   const mins = Math.floor(secs / 60);
   const displaySecs = secs % 60;
 
@@ -113,13 +113,13 @@ export default function CoachScreen() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [showTyping, setShowTyping] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [recordingDuration, setRecordingDuration] = useState(0);
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
-  const inputRef = useRef<TextInput>(null);
-  const recordingRef = useRef<Audio.Recording | null>(null);
-  const soundRef = useRef<Audio.Sound | null>(null);
-  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [currentPlaybackUri, setCurrentPlaybackUri] = useState<string | null>(null);
+  const inputRef = useRef<TextInput>(null);
+
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const player = useAudioPlayer(currentPlaybackUri);
 
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
 
@@ -127,77 +127,14 @@ export default function CoachScreen() {
     return `[Context: Today I've eaten ${totalCaloriesConsumed}/${profile.calorieTarget} kcal. Burned: ${totalCaloriesBurned} kcal. Macros: P${macros.protein}g, C${macros.carbs}g, F${macros.fat}g. Water: ${todayData.waterGlasses}/8. Workouts today: ${todayData.workouts.length} (${todayData.workouts.filter(w => w.completed).length} completed). Streak: ${streak.currentStreak} days.]`;
   }, [totalCaloriesConsumed, profile, totalCaloriesBurned, macros, todayData, streak]);
 
-  const playAudioFromBase64 = async (base64Audio: string) => {
-    try {
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync();
-        soundRef.current = null;
-      }
-
-      const uri = `data:audio/wav;base64,${base64Audio}`;
-      const { sound } = await Audio.Sound.createAsync({ uri });
-      soundRef.current = sound;
-      setIsPlaying(true);
-
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if ('didJustFinish' in status && status.didJustFinish) {
-          setIsPlaying(false);
-        }
-      });
-
-      await sound.playAsync();
-    } catch (error) {
-      console.error('Audio playback error:', error);
-      setIsPlaying(false);
-    }
-  };
-
-  const playAudioFromUri = async (uri: string) => {
-    try {
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync();
-        soundRef.current = null;
-      }
-
-      const { sound } = await Audio.Sound.createAsync({ uri });
-      soundRef.current = sound;
-      setIsPlaying(true);
-
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if ('didJustFinish' in status && status.didJustFinish) {
-          setIsPlaying(false);
-        }
-      });
-
-      await sound.playAsync();
-    } catch (error) {
-      console.error('Audio playback error:', error);
-      setIsPlaying(false);
-    }
-  };
-
   const startRecording = async () => {
     try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (!permission.granted) return;
+      const status = await AudioModule.requestRecordingPermissionsAsync();
+      if (!status.granted) return;
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      recordingRef.current = recording;
+      await recorder.prepareToRecordAsync();
+      recorder.record();
       setIsRecording(true);
-      setRecordingDuration(0);
-
-      const startTime = Date.now();
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingDuration(Date.now() - startTime);
-      }, 100);
-
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (error) {
       console.error('Failed to start recording:', error);
@@ -205,28 +142,15 @@ export default function CoachScreen() {
   };
 
   const stopRecording = async () => {
-    if (!recordingRef.current) return;
+    if (!recorder.isRecording) return;
 
     try {
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-        recordingTimerRef.current = null;
-      }
-
+      await recorder.stop();
       setIsRecording(false);
-      setRecordingDuration(0);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      await recordingRef.current.stopAndUnloadAsync();
-      const uri = recordingRef.current.getURI();
-      recordingRef.current = null;
-
+      const uri = recorder.uri;
       if (!uri) return;
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-      });
 
       setIsProcessingVoice(true);
       setShowTyping(true);
@@ -298,8 +222,9 @@ export default function CoachScreen() {
       };
       setMessages(prev => [...prev, assistantMessage]);
 
-      if (voiceData.audio) {
-        await playAudioFromBase64(voiceData.audio);
+      if (audioUri) {
+        setCurrentPlaybackUri(audioUri);
+        setIsPlaying(true);
       }
 
     } catch (error) {
@@ -313,6 +238,28 @@ export default function CoachScreen() {
       setShowTyping(false);
       setIsProcessingVoice(false);
     }
+  };
+
+  useEffect(() => {
+    if (isPlaying && currentPlaybackUri && player) {
+      try {
+        player.play();
+      } catch (e) {
+        console.error('Playback error:', e);
+      }
+    }
+  }, [currentPlaybackUri, isPlaying]);
+
+  const handlePlayAudio = (uri: string) => {
+    setCurrentPlaybackUri(uri);
+    setIsPlaying(true);
+  };
+
+  const handleStopPlayback = () => {
+    if (player) {
+      player.pause();
+    }
+    setIsPlaying(false);
   };
 
   const handleSend = async (text?: string) => {
@@ -413,7 +360,7 @@ export default function CoachScreen() {
           </View>
         </View>
         {isPlaying && (
-          <Pressable onPress={() => { soundRef.current?.stopAsync(); setIsPlaying(false); }}>
+          <Pressable onPress={handleStopPlayback}>
             <Ionicons name="stop-circle" size={28} color={Colors.primary} />
           </Pressable>
         )}
@@ -448,7 +395,7 @@ export default function CoachScreen() {
           renderItem={({ item }) => (
             <MessageBubble
               message={item}
-              onPlayAudio={(uri) => playAudioFromUri(uri)}
+              onPlayAudio={handlePlayAudio}
             />
           )}
           inverted={!!hasMessages}
@@ -460,7 +407,7 @@ export default function CoachScreen() {
         />
       )}
 
-      {isRecording && <RecordingIndicator duration={recordingDuration} />}
+      {isRecording && <RecordingIndicator duration={recorder.currentTime} />}
 
       <View style={[styles.inputArea, { paddingBottom: insets.bottom || (Platform.OS === 'web' ? 34 : 8) }]}>
         <View style={styles.inputContainer}>

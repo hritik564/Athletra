@@ -69,9 +69,7 @@ function QuickAction({ icon, label, onPress, gradient }: { icon: string; label: 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { profile } = useUser();
-  const { todayData, totalCaloriesConsumed, totalCaloriesBurned, macros, streak, addWater, removeWater, addSteps, setSteps, stepsGoal, updateStepsGoal, pedometerAvailable, sensorSteps } = useFitness();
-  const [showStepsInput, setShowStepsInput] = useState(false);
-  const [stepsInput, setStepsInput] = useState('');
+  const { todayData, totalCaloriesConsumed, totalCaloriesBurned, macros, streak, addWater, removeWater, stepsGoal, updateStepsGoal, pedometerAvailable } = useFitness();
   const [showGoalEdit, setShowGoalEdit] = useState(false);
   const [goalInput, setGoalInput] = useState(String(stepsGoal));
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
@@ -201,78 +199,19 @@ export default function DashboardScreen() {
               <Text style={styles.stepsLabel}>steps</Text>
             </View>
           </View>
-          <View style={styles.stepsControls}>
-            <Pressable
-              style={styles.stepsQuickBtn}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); addSteps(500); }}
-            >
-              <Text style={styles.stepsQuickBtnText}>+500</Text>
-            </Pressable>
-            <Pressable
-              style={styles.stepsQuickBtn}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); addSteps(1000); }}
-            >
-              <Text style={styles.stepsQuickBtnText}>+1000</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.stepsQuickBtn, styles.stepsEditBtn]}
-              onPress={() => { setStepsInput(String(todayData.steps)); setShowStepsInput(true); }}
-            >
-              <Ionicons name="create-outline" size={16} color={Colors.primary} />
-            </Pressable>
-          </View>
           <Text style={styles.stepsRemaining}>
             {todayData.steps >= stepsGoal
               ? 'Goal reached!'
               : `${(stepsGoal - todayData.steps).toLocaleString()} to go`}
           </Text>
-          {pedometerAvailable ? (
-            <View style={styles.autoTrackBadge}>
-              <Ionicons name="radio" size={12} color={Colors.success} />
-              <Text style={styles.autoTrackText}>Auto-tracking  ·  {sensorSteps.toLocaleString()} from sensor</Text>
-            </View>
-          ) : (
-            <View style={styles.autoTrackBadge}>
-              <Ionicons name="create-outline" size={12} color={Colors.textMuted} />
-              <Text style={[styles.autoTrackText, { color: Colors.textMuted }]}>Manual tracking</Text>
-            </View>
-          )}
+          <View style={styles.autoTrackBadge}>
+            <Ionicons name={pedometerAvailable ? "radio" : "phone-portrait-outline"} size={12} color={pedometerAvailable ? Colors.success : Colors.accent} />
+            <Text style={[styles.autoTrackText, !pedometerAvailable && { color: Colors.accent }]}>
+              {pedometerAvailable ? 'Auto-tracking from sensor' : 'Open on your phone to auto-track'}
+            </Text>
+          </View>
         </View>
       </View>
-
-      <Modal visible={showStepsInput} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowStepsInput(false)}>
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
-            <Text style={styles.modalTitle}>Enter Steps</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={stepsInput}
-              onChangeText={setStepsInput}
-              keyboardType="number-pad"
-              placeholder="e.g. 5000"
-              placeholderTextColor={Colors.textMuted}
-              autoFocus
-            />
-            <View style={styles.modalButtons}>
-              <Pressable style={styles.modalCancel} onPress={() => setShowStepsInput(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.modalSave}
-                onPress={() => {
-                  const val = parseInt(stepsInput);
-                  if (!isNaN(val) && val >= 0) { setSteps(val); }
-                  setShowStepsInput(false);
-                }}
-              >
-                <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.modalSaveGradient}>
-                  <Text style={styles.modalSaveText}>Save</Text>
-                </LinearGradient>
-              </Pressable>
-            </View>
-          </View>
-        </Pressable>
-      </Modal>
 
       <Modal visible={showGoalEdit} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowGoalEdit(false)}>
@@ -396,15 +335,8 @@ const styles = StyleSheet.create({
   stepsRingCenter: { position: 'absolute' as const, alignItems: 'center' },
   stepsCount: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: Colors.text },
   stepsLabel: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary, marginTop: -2 },
-  stepsControls: { flexDirection: 'row', gap: 10, marginBottom: 12 },
-  stepsQuickBtn: {
-    paddingHorizontal: 18, paddingVertical: 10, backgroundColor: Colors.surfaceLight,
-    borderRadius: 20, borderWidth: 1, borderColor: Colors.border,
-  },
-  stepsQuickBtnText: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: Colors.accent },
-  stepsEditBtn: { paddingHorizontal: 14 },
-  stepsRemaining: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary },
-  autoTrackBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: 'rgba(76,175,80,0.08)', borderRadius: 20 },
+  stepsRemaining: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary, marginBottom: 4 },
+  autoTrackBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: 'rgba(76,175,80,0.08)', borderRadius: 20 },
   autoTrackText: { fontSize: 11, fontFamily: 'Outfit_500Medium', color: Colors.success },
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center',

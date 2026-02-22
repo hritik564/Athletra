@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { Platform, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Pedometer } from 'expo-sensors';
@@ -61,12 +61,9 @@ interface FitnessContextValue {
   completeWorkout: (id: string) => Promise<void>;
   addWater: () => Promise<void>;
   removeWater: () => Promise<void>;
-  addSteps: (count: number) => Promise<void>;
-  setSteps: (count: number) => Promise<void>;
   stepsGoal: number;
   updateStepsGoal: (goal: number) => Promise<void>;
   pedometerAvailable: boolean;
-  sensorSteps: number;
   weightHistory: WeightEntry[];
   logWeight: (weight: number) => Promise<void>;
   streak: StreakData;
@@ -110,9 +107,7 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
   const [stepsGoal, setStepsGoal] = useState(DEFAULT_STEPS_GOAL);
 
   const [sensorSteps, setSensorSteps] = useState(0);
-  const [manualSteps, setManualSteps] = useState(0);
   const [pedometerAvailable, setPedometerAvailable] = useState(false);
-  const sensorStepsRef = useRef(0);
 
   useEffect(() => {
     loadData();
@@ -133,7 +128,6 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
           try {
             const result = await Pedometer.getStepCountAsync(getMidnight(), new Date());
             setSensorSteps(result.steps);
-            sensorStepsRef.current = result.steps;
           } catch {}
         };
 
@@ -169,22 +163,20 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const totalSteps = sensorSteps + manualSteps;
-    if (totalSteps !== todayData.steps) {
-      const updated = { ...todayData, steps: Math.max(0, totalSteps) };
+    if (sensorSteps !== todayData.steps) {
+      const updated = { ...todayData, steps: Math.max(0, sensorSteps) };
       setTodayData(updated);
       AsyncStorage.setItem(`day_${updated.date}`, JSON.stringify(updated));
     }
-  }, [sensorSteps, manualSteps]);
+  }, [sensorSteps]);
 
   const loadData = async () => {
     const today = getToday();
-    const [dayStr, weightsStr, streakStr, stepsGoalStr, manualStepsStr] = await Promise.all([
+    const [dayStr, weightsStr, streakStr, stepsGoalStr] = await Promise.all([
       AsyncStorage.getItem(`day_${today}`),
       AsyncStorage.getItem('weight_history'),
       AsyncStorage.getItem('streak_data'),
       AsyncStorage.getItem('steps_goal'),
-      AsyncStorage.getItem(`manual_steps_${today}`),
     ]);
     if (dayStr) {
       const parsed = JSON.parse(dayStr);
@@ -193,7 +185,6 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
     if (weightsStr) setWeightHistory(JSON.parse(weightsStr));
     if (streakStr) setStreak(JSON.parse(streakStr));
     if (stepsGoalStr) setStepsGoal(JSON.parse(stepsGoalStr));
-    if (manualStepsStr) setManualSteps(JSON.parse(manualStepsStr));
   };
 
   const saveTodayData = useCallback(async (data: DayData) => {
@@ -261,22 +252,6 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
     await saveTodayData(updated);
   }, [todayData, saveTodayData]);
 
-  const saveManualSteps = useCallback(async (val: number) => {
-    setManualSteps(val);
-    await AsyncStorage.setItem(`manual_steps_${getToday()}`, JSON.stringify(val));
-  }, []);
-
-  const addSteps = useCallback(async (count: number) => {
-    const newManual = manualSteps + count;
-    await saveManualSteps(newManual);
-  }, [manualSteps, saveManualSteps]);
-
-  const setStepsValue = useCallback(async (count: number) => {
-    const desired = Math.max(0, count);
-    const newManual = desired - sensorStepsRef.current;
-    await saveManualSteps(newManual);
-  }, [saveManualSteps]);
-
   const updateStepsGoal = useCallback(async (goal: number) => {
     const newGoal = Math.max(100, goal);
     setStepsGoal(newGoal);
@@ -305,10 +280,9 @@ export function FitnessProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({
     todayData, addMeal, removeMeal, addWorkout, completeWorkout, addWater, removeWater,
-    addSteps, setSteps: setStepsValue, stepsGoal, updateStepsGoal,
-    pedometerAvailable, sensorSteps,
+    stepsGoal, updateStepsGoal, pedometerAvailable,
     weightHistory, logWeight, streak, totalCaloriesConsumed, totalCaloriesBurned, macros,
-  }), [todayData, weightHistory, streak, stepsGoal, pedometerAvailable, sensorSteps, totalCaloriesConsumed, totalCaloriesBurned, macros]);
+  }), [todayData, weightHistory, streak, stepsGoal, pedometerAvailable, totalCaloriesConsumed, totalCaloriesBurned, macros]);
 
   return <FitnessContext.Provider value={value}>{children}</FitnessContext.Provider>;
 }

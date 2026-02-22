@@ -69,7 +69,7 @@ function QuickAction({ icon, label, onPress, gradient }: { icon: string; label: 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { profile } = useUser();
-  const { todayData, totalCaloriesConsumed, totalCaloriesBurned, macros, streak, addWater, removeWater, addSteps, setSteps, stepsGoal, updateStepsGoal } = useFitness();
+  const { todayData, totalCaloriesConsumed, totalCaloriesBurned, macros, streak, addWater, removeWater, addSteps, setSteps, stepsGoal, updateStepsGoal, pedometerAvailable, sensorSteps } = useFitness();
   const [showStepsInput, setShowStepsInput] = useState(false);
   const [stepsInput, setStepsInput] = useState('');
   const [showGoalEdit, setShowGoalEdit] = useState(false);
@@ -226,6 +226,17 @@ export default function DashboardScreen() {
               ? 'Goal reached!'
               : `${(stepsGoal - todayData.steps).toLocaleString()} to go`}
           </Text>
+          {pedometerAvailable ? (
+            <View style={styles.autoTrackBadge}>
+              <Ionicons name="radio" size={12} color={Colors.success} />
+              <Text style={styles.autoTrackText}>Auto-tracking  ·  {sensorSteps.toLocaleString()} from sensor</Text>
+            </View>
+          ) : (
+            <View style={styles.autoTrackBadge}>
+              <Ionicons name="create-outline" size={12} color={Colors.textMuted} />
+              <Text style={[styles.autoTrackText, { color: Colors.textMuted }]}>Manual tracking</Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -393,6 +404,8 @@ const styles = StyleSheet.create({
   stepsQuickBtnText: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: Colors.accent },
   stepsEditBtn: { paddingHorizontal: 14 },
   stepsRemaining: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary },
+  autoTrackBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: 'rgba(76,175,80,0.08)', borderRadius: 20 },
+  autoTrackText: { fontSize: 11, fontFamily: 'Outfit_500Medium', color: Colors.success },
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center',
     alignItems: 'center', padding: 32,

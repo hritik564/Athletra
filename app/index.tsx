@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Pressable, TextInput, Animated, Dimensions, Platform,
-  Switch, ScrollView,
+  Switch, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,10 +15,10 @@ const { width } = Dimensions.get('window');
 const TOTAL_STEPS = 7;
 
 const GOALS = [
-  { key: 'lose_weight', label: 'Lose Weight', icon: 'flame' as const },
-  { key: 'build_muscle', label: 'Build Muscle', icon: 'barbell' as const },
-  { key: 'stay_fit', label: 'Stay Fit', icon: 'heart' as const },
-  { key: 'gain_energy', label: 'Boost Energy', icon: 'flash' as const },
+  { key: 'lose_weight', label: 'Cut & Lean', icon: 'flame' as const, desc: 'Shed fat, reveal muscle' },
+  { key: 'build_muscle', label: 'Build Power', icon: 'barbell' as const, desc: 'Gain size and strength' },
+  { key: 'stay_fit', label: 'Peak Form', icon: 'heart' as const, desc: 'Maintain elite conditioning' },
+  { key: 'gain_energy', label: 'Unlock Energy', icon: 'flash' as const, desc: 'Boost daily performance' },
 ];
 
 const HEALTH_CONDITIONS = [
@@ -29,9 +29,9 @@ const HEALTH_CONDITIONS = [
 ];
 
 const FITNESS_LEVELS = [
-  { key: 'beginner', label: 'Beginner', desc: 'New to fitness or returning' },
-  { key: 'intermediate', label: 'Intermediate', desc: 'Regular exercise 3-5x/week' },
-  { key: 'advanced', label: 'Advanced', desc: 'Intense training 5-7x/week' },
+  { key: 'beginner', label: 'Foundation', desc: 'Building base fitness from the ground up' },
+  { key: 'intermediate', label: 'Competitor', desc: 'Consistent training, ready to push harder' },
+  { key: 'advanced', label: 'Elite', desc: 'High-intensity training, chasing new limits' },
 ];
 
 const ENVIRONMENTS = [
@@ -42,7 +42,7 @@ const ENVIRONMENTS = [
 ];
 
 const DIETARY_PREFS = [
-  { key: 'none', label: 'No Preference' },
+  { key: 'none', label: 'No Restrictions' },
   { key: 'vegetarian', label: 'Vegetarian' },
   { key: 'vegan', label: 'Vegan' },
   { key: 'keto', label: 'Keto' },
@@ -51,16 +51,45 @@ const DIETARY_PREFS = [
 ];
 
 const SPORTS = [
-  'Running', 'Swimming', 'Cycling', 'Football', 'Basketball', 'Tennis',
-  'MMA / Boxing', 'CrossFit', 'Weightlifting', 'Yoga', 'Cricket', 'Other',
+  { key: 'football', label: 'Football', icon: 'football' as const },
+  { key: 'basketball', label: 'Basketball', icon: 'basketball' as const },
+  { key: 'cricket', label: 'Cricket', icon: 'baseball' as const },
+  { key: 'tennis', label: 'Tennis', icon: 'tennisball' as const },
+  { key: 'badminton', label: 'Badminton', icon: 'tennisball-outline' as const },
+  { key: 'running', label: 'Running', icon: 'walk' as const },
+  { key: 'swimming', label: 'Swimming', icon: 'water' as const },
+  { key: 'cycling', label: 'Cycling', icon: 'bicycle' as const },
+  { key: 'mma', label: 'MMA / Boxing', icon: 'hand-left' as const },
+  { key: 'weightlifting', label: 'Weightlifting', icon: 'barbell' as const },
+  { key: 'other', label: 'Other', icon: 'ellipsis-horizontal' as const },
 ];
 
 const ATHLETE_LEVELS = [
-  { key: 'recreational', label: 'Recreational' },
-  { key: 'amateur', label: 'Amateur / Club' },
-  { key: 'semi_pro', label: 'Semi-Pro' },
-  { key: 'professional', label: 'Professional' },
+  { key: 'recreational', label: 'Recreational', desc: 'Training for fun and fitness' },
+  { key: 'amateur', label: 'Amateur / Club', desc: 'Competing at local level' },
+  { key: 'semi_pro', label: 'Semi-Pro', desc: 'Serious competition, structured training' },
+  { key: 'professional', label: 'Professional', desc: 'Full-time dedication to the sport' },
 ];
+
+const SPORT_INSIGHTS: Record<string, string> = {
+  football: "We'll build explosive sprints, agility drills, and match-day endurance into your plan.",
+  basketball: "Focus on vertical power, court speed, and sustained energy through all four quarters.",
+  cricket: "We'll target rotational power, fast-twitch reflexes, and stamina for long sessions.",
+  tennis: "Your plan will emphasize lateral quickness, shoulder stability, and rally endurance.",
+  badminton: "We'll sharpen your reaction time, footwork speed, and overhead power.",
+  running: "We'll structure periodized runs, pace work, and recovery cycles for your distance.",
+  swimming: "Focus on stroke efficiency, core stability, and aerobic capacity in and out of the pool.",
+  cycling: "We'll build sustained power output, cadence control, and hill-climbing strength.",
+  mma: "Your program will balance striking power, grappling endurance, and fight conditioning.",
+  weightlifting: "We'll program progressive overload, accessory work, and peaking cycles for max lifts.",
+};
+
+const GOAL_INSIGHTS: Record<string, string> = {
+  lose_weight: "Your plan will combine strategic calorie deficit with muscle-preserving training.",
+  build_muscle: "We'll prioritize progressive overload and optimize your protein timing.",
+  stay_fit: "A balanced mix of strength, cardio, and mobility to keep you performing at your best.",
+  gain_energy: "We'll focus on sustainable habits, sleep optimization, and energizing nutrition.",
+};
 
 function calculateCalories(weight: number, height: number, age: number, activityLevel: string, goal: string): number {
   const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
@@ -71,12 +100,122 @@ function calculateCalories(weight: number, height: number, age: number, activity
   return Math.round(tdee);
 }
 
+function AIInsight({ text, Colors }: { text: string; Colors: any }) {
+  const pulseAnim = useRef(new Animated.Value(0.6)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.6, duration: 1200, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+
+  return (
+    <View style={{
+      width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+      marginTop: 16, padding: 14, backgroundColor: Colors.primary + '12',
+      borderRadius: 14, borderLeftWidth: 3, borderLeftColor: Colors.primary,
+    }}>
+      <Animated.View style={{ opacity: pulseAnim }}>
+        <Ionicons name="sparkles" size={16} color={Colors.primary} />
+      </Animated.View>
+      <Text style={{
+        flex: 1, fontSize: 13, fontFamily: 'Outfit_500Medium',
+        color: Colors.textSecondary, lineHeight: 19,
+      }}>{text}</Text>
+    </View>
+  );
+}
+
+function BlueprintScreen({ Colors, onComplete }: { Colors: any; onComplete: () => void }) {
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  const fadeTexts = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+  ]).current;
+
+  const steps = [
+    'Analyzing your profile...',
+    'Mapping training zones...',
+    'Calibrating nutrition targets...',
+    'Finalizing your blueprint...',
+  ];
+
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: 1, duration: 3500, useNativeDriver: false,
+    }).start();
+
+    const delays = [0, 800, 1600, 2400];
+    delays.forEach((delay, i) => {
+      setTimeout(() => {
+        Animated.timing(fadeTexts[i], { toValue: 1, duration: 400, useNativeDriver: true }).start();
+      }, delay);
+    });
+
+    setTimeout(() => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onComplete();
+    }, 3800);
+  }, []);
+
+  const progressWidth = progressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
+
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 }}>
+      <LinearGradient colors={[Colors.primary, Colors.accent]} style={{
+        width: 90, height: 90, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 32,
+      }}>
+        <ActivityIndicator size="large" color="#fff" />
+      </LinearGradient>
+
+      <Text style={{
+        fontSize: 24, fontFamily: 'Outfit_700Bold', color: Colors.text,
+        textAlign: 'center', marginBottom: 8,
+      }}>Building Your Performance Blueprint</Text>
+
+      <Text style={{
+        fontSize: 14, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary,
+        textAlign: 'center', marginBottom: 32,
+      }}>Personalizing every detail for your goals</Text>
+
+      <View style={{ width: '100%', height: 6, backgroundColor: Colors.surfaceLight, borderRadius: 3, marginBottom: 28, overflow: 'hidden' }}>
+        <Animated.View style={{
+          height: '100%', backgroundColor: Colors.primary, borderRadius: 3,
+          width: progressWidth,
+        }} />
+      </View>
+
+      <View style={{ width: '100%', gap: 12 }}>
+        {steps.map((stepText, i) => (
+          <Animated.View key={i} style={{
+            opacity: fadeTexts[i], flexDirection: 'row', alignItems: 'center', gap: 10,
+          }}>
+            <Ionicons name="checkmark-circle" size={18} color={Colors.primary} />
+            <Text style={{
+              fontSize: 14, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary,
+            }}>{stepText}</Text>
+          </Animated.View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function OnboardingScreen() {
   const Colors = useColors();
   const styles = createStyles(Colors);
   const { profile, updateProfile, isLoading } = useUser();
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState(0);
+  const [showBlueprint, setShowBlueprint] = useState(false);
 
   const [name, setName] = useState('');
   const [age, setAge] = useState('25');
@@ -88,6 +227,7 @@ export default function OnboardingScreen() {
 
   const [isAthlete, setIsAthlete] = useState(false);
   const [sport, setSport] = useState('');
+  const [customSport, setCustomSport] = useState('');
   const [athleteLevel, setAthleteLevel] = useState('recreational');
 
   const [healthConditions, setHealthConditions] = useState<string[]>([]);
@@ -126,8 +266,9 @@ export default function OnboardingScreen() {
     );
   };
 
+  const finalSport = sport === 'other' ? customSport : sport;
+
   const handleComplete = async () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const computedCalories = calculateCalories(
       parseFloat(weight) || 70,
       parseFloat(height) || 170,
@@ -147,7 +288,7 @@ export default function OnboardingScreen() {
       fitnessLevel: fitnessLevel as any,
       calorieTarget: finalCalories,
       isAthlete,
-      sport: isAthlete ? sport : '',
+      sport: isAthlete ? finalSport : '',
       athleteLevel: isAthlete ? athleteLevel : '',
       healthConditions,
       healthDetails,
@@ -160,8 +301,21 @@ export default function OnboardingScreen() {
     router.replace('/(tabs)');
   };
 
+  const startBlueprint = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setShowBlueprint(true);
+  };
+
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
   const webBottomInset = Platform.OS === 'web' ? 34 : 0;
+
+  if (showBlueprint) {
+    return (
+      <View style={[styles.container, { backgroundColor: Colors.background }]}>
+        <BlueprintScreen Colors={Colors} onComplete={handleComplete} />
+      </View>
+    );
+  }
 
   const renderStep = () => {
     switch (step) {
@@ -170,13 +324,13 @@ export default function OnboardingScreen() {
           <View style={styles.stepContent}>
             <View style={styles.iconContainer}>
               <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.iconBg}>
-                <Ionicons name="person" size={40} color="#fff" />
+                <Ionicons name="person" size={36} color="#fff" />
               </LinearGradient>
             </View>
-            <Text style={styles.stepTitle}>Let's get to know you</Text>
-            <Text style={styles.stepSubtitle}>Your coach wants to know who they're working with</Text>
+            <Text style={styles.stepTitle}>Your Athletic Profile</Text>
+            <Text style={styles.stepSubtitle}>The foundation of your personalized program</Text>
             <View style={styles.fieldContainer}>
-              <Text style={styles.inputLabel}>Your Name</Text>
+              <Text style={styles.inputLabel}>Full Name</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Enter your name"
@@ -232,11 +386,11 @@ export default function OnboardingScreen() {
           <View style={styles.stepContent}>
             <View style={styles.iconContainer}>
               <LinearGradient colors={[Colors.primary, Colors.accent]} style={styles.iconBg}>
-                <Ionicons name="trophy" size={40} color="#fff" />
+                <Ionicons name="trophy" size={36} color="#fff" />
               </LinearGradient>
             </View>
-            <Text style={styles.stepTitle}>What's your goal?</Text>
-            <Text style={styles.stepSubtitle}>This shapes your entire plan</Text>
+            <Text style={styles.stepTitle}>Define Your Edge</Text>
+            <Text style={styles.stepSubtitle}>What does peak performance look like for you?</Text>
             <View style={styles.optionsGrid}>
               {GOALS.map((g) => (
                 <Pressable
@@ -246,16 +400,22 @@ export default function OnboardingScreen() {
                 >
                   <Ionicons
                     name={g.icon}
-                    size={28}
+                    size={26}
                     color={goal === g.key ? Colors.primary : Colors.textSecondary}
                   />
                   <Text style={[styles.optionLabel, goal === g.key && styles.optionLabelActive]}>
                     {g.label}
                   </Text>
+                  <Text style={[styles.optionDesc, goal === g.key && { color: Colors.primary + 'CC' }]}>
+                    {g.desc}
+                  </Text>
                 </Pressable>
               ))}
             </View>
-            <View style={[styles.fieldContainer, { marginTop: 20 }]}>
+            {GOAL_INSIGHTS[goal] && (
+              <AIInsight text={GOAL_INSIGHTS[goal]} Colors={Colors} />
+            )}
+            <View style={[styles.fieldContainer, { marginTop: 16 }]}>
               <Text style={styles.inputLabel}>Daily Calorie Target (optional)</Text>
               <TextInput
                 style={styles.input}
@@ -274,13 +434,13 @@ export default function OnboardingScreen() {
           <View style={styles.stepContent}>
             <View style={styles.iconContainer}>
               <LinearGradient colors={[Colors.accent, Colors.accentDark]} style={styles.iconBg}>
-                <Ionicons name="medal" size={40} color="#fff" />
+                <Ionicons name="medal" size={36} color="#fff" />
               </LinearGradient>
             </View>
-            <Text style={styles.stepTitle}>Are you an athlete?</Text>
-            <Text style={styles.stepSubtitle}>We'll tailor training for your sport</Text>
+            <Text style={styles.stepTitle}>Your Competitive Arena</Text>
+            <Text style={styles.stepSubtitle}>Sport-specific training unlocks faster results</Text>
             <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>I train for a sport</Text>
+              <Text style={styles.switchLabel}>I compete in a sport</Text>
               <Switch
                 value={isAthlete}
                 onValueChange={(v) => { setIsAthlete(v); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
@@ -290,26 +450,52 @@ export default function OnboardingScreen() {
             </View>
             {isAthlete && (
               <>
-                <Text style={[styles.inputLabel, { alignSelf: 'flex-start', marginBottom: 8, marginTop: 12 }]}>Your Sport</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipRow}>
+                <Text style={[styles.sectionLabel, { marginTop: 16 }]}>Select Your Sport</Text>
+                <View style={styles.sportGrid}>
                   {SPORTS.map((s) => (
                     <Pressable
-                      key={s}
-                      style={[styles.chip, sport === s && styles.chipActive]}
-                      onPress={() => { setSport(s); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                      key={s.key}
+                      style={[styles.sportCard, sport === s.key && styles.sportCardActive]}
+                      onPress={() => { setSport(s.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
                     >
-                      <Text style={[styles.chipText, sport === s && styles.chipTextActive]}>{s}</Text>
+                      <Ionicons
+                        name={s.icon}
+                        size={22}
+                        color={sport === s.key ? Colors.accent : Colors.textMuted}
+                      />
+                      <Text style={[styles.sportLabel, sport === s.key && styles.sportLabelActive]}>
+                        {s.label}
+                      </Text>
                     </Pressable>
                   ))}
-                </ScrollView>
-                <Text style={[styles.inputLabel, { alignSelf: 'flex-start', marginBottom: 8, marginTop: 16 }]}>Level</Text>
+                </View>
+                {sport === 'other' && (
+                  <View style={[styles.fieldContainer, { marginTop: 12 }]}>
+                    <Text style={styles.inputLabel}>Your Sport</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g. Rugby, Volleyball, Table Tennis"
+                      placeholderTextColor={Colors.textMuted}
+                      value={customSport}
+                      onChangeText={setCustomSport}
+                      autoFocus
+                    />
+                  </View>
+                )}
+                {sport && sport !== 'other' && SPORT_INSIGHTS[sport] && (
+                  <AIInsight text={SPORT_INSIGHTS[sport]} Colors={Colors} />
+                )}
+                <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Competition Level</Text>
                 {ATHLETE_LEVELS.map((l) => (
                   <Pressable
                     key={l.key}
-                    style={[styles.listOption, athleteLevel === l.key && styles.listOptionActive]}
+                    style={[styles.levelOption, athleteLevel === l.key && styles.levelOptionActive]}
                     onPress={() => { setAthleteLevel(l.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
                   >
-                    <Text style={[styles.listOptionLabel, athleteLevel === l.key && styles.listOptionLabelActive]}>{l.label}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.levelLabel, athleteLevel === l.key && styles.levelLabelActive]}>{l.label}</Text>
+                      <Text style={styles.levelDesc}>{l.desc}</Text>
+                    </View>
                     {athleteLevel === l.key && <Ionicons name="checkmark-circle" size={22} color={Colors.accent} />}
                   </Pressable>
                 ))}
@@ -322,12 +508,12 @@ export default function OnboardingScreen() {
         return (
           <View style={styles.stepContent}>
             <View style={styles.iconContainer}>
-              <LinearGradient colors={['#EF5350', '#E53935']} style={styles.iconBg}>
-                <Ionicons name="medkit" size={40} color="#fff" />
+              <LinearGradient colors={[Colors.error, '#C62828']} style={styles.iconBg}>
+                <Ionicons name="shield-checkmark" size={36} color="#fff" />
               </LinearGradient>
             </View>
-            <Text style={styles.stepTitle}>Health conditions</Text>
-            <Text style={styles.stepSubtitle}>So we can keep you safe and supported</Text>
+            <Text style={styles.stepTitle}>Safety First</Text>
+            <Text style={styles.stepSubtitle}>We adapt every plan around your health needs</Text>
             <View style={styles.optionsGrid}>
               {HEALTH_CONDITIONS.map((c) => (
                 <Pressable
@@ -337,7 +523,7 @@ export default function OnboardingScreen() {
                 >
                   <Ionicons
                     name={c.icon}
-                    size={26}
+                    size={24}
                     color={healthConditions.includes(c.key) ? Colors.accent : Colors.textSecondary}
                   />
                   <Text style={[styles.optionLabel, healthConditions.includes(c.key) && styles.optionLabelActiveAccent]}>
@@ -347,17 +533,23 @@ export default function OnboardingScreen() {
               ))}
             </View>
             {healthConditions.length > 0 && (
-              <View style={[styles.fieldContainer, { marginTop: 16 }]}>
-                <Text style={styles.inputLabel}>Details (medications, severity, etc.)</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  placeholder="e.g. Type 2 diabetes, on metformin"
-                  placeholderTextColor={Colors.textMuted}
-                  value={healthDetails}
-                  onChangeText={setHealthDetails}
-                  multiline
+              <>
+                <AIInsight
+                  text="Your coach will adjust intensity, exercises, and nutrition to work safely with your conditions."
+                  Colors={Colors}
                 />
-              </View>
+                <View style={[styles.fieldContainer, { marginTop: 12 }]}>
+                  <Text style={styles.inputLabel}>Details (medications, severity, etc.)</Text>
+                  <TextInput
+                    style={[styles.input, styles.textArea]}
+                    placeholder="e.g. Type 2 diabetes, on metformin"
+                    placeholderTextColor={Colors.textMuted}
+                    value={healthDetails}
+                    onChangeText={setHealthDetails}
+                    multiline
+                  />
+                </View>
+              </>
             )}
             <View style={[styles.fieldContainer, { marginTop: 12 }]}>
               <Text style={styles.inputLabel}>Food Allergies</Text>
@@ -377,22 +569,22 @@ export default function OnboardingScreen() {
           <View style={styles.stepContent}>
             <View style={styles.iconContainer}>
               <LinearGradient colors={[Colors.accentLight, Colors.accent]} style={styles.iconBg}>
-                <Ionicons name="fitness" size={40} color="#fff" />
+                <Ionicons name="fitness" size={36} color="#fff" />
               </LinearGradient>
             </View>
-            <Text style={styles.stepTitle}>Fitness level</Text>
-            <Text style={styles.stepSubtitle}>Be honest — we'll grow together</Text>
+            <Text style={styles.stepTitle}>Your Training Level</Text>
+            <Text style={styles.stepSubtitle}>Honest input drives better results</Text>
             {FITNESS_LEVELS.map((l) => (
               <Pressable
                 key={l.key}
-                style={[styles.activityOption, fitnessLevel === l.key && styles.activityOptionActive]}
+                style={[styles.levelOption, fitnessLevel === l.key && styles.levelOptionActive]}
                 onPress={() => { setFitnessLevel(l.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
               >
-                <View style={styles.activityTextContainer}>
-                  <Text style={[styles.activityLabel, fitnessLevel === l.key && styles.activityLabelActive]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.levelLabel, fitnessLevel === l.key && styles.levelLabelActive]}>
                     {l.label}
                   </Text>
-                  <Text style={styles.activityDesc}>{l.desc}</Text>
+                  <Text style={styles.levelDesc}>{l.desc}</Text>
                 </View>
                 {fitnessLevel === l.key && (
                   <Ionicons name="checkmark-circle" size={24} color={Colors.accent} />
@@ -400,10 +592,10 @@ export default function OnboardingScreen() {
               </Pressable>
             ))}
             <View style={[styles.fieldContainer, { marginTop: 16 }]}>
-              <Text style={styles.inputLabel}>Describe your typical day</Text>
+              <Text style={styles.inputLabel}>Your daily rhythm</Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
-                placeholder="e.g. Desk job 9-5, walk 20 min after lunch"
+                placeholder="e.g. Desk job 9-5, gym at 6pm"
                 placeholderTextColor={Colors.textMuted}
                 value={dailyPattern}
                 onChangeText={setDailyPattern}
@@ -417,12 +609,12 @@ export default function OnboardingScreen() {
         return (
           <View style={styles.stepContent}>
             <View style={styles.iconContainer}>
-              <LinearGradient colors={['#42A5F5', '#1976D2']} style={styles.iconBg}>
-                <Ionicons name="location" size={40} color="#fff" />
+              <LinearGradient colors={[Colors.primaryLight, Colors.primary]} style={styles.iconBg}>
+                <Ionicons name="location" size={36} color="#fff" />
               </LinearGradient>
             </View>
-            <Text style={styles.stepTitle}>Where do you work out?</Text>
-            <Text style={styles.stepSubtitle}>We'll pick the right exercises for your space</Text>
+            <Text style={styles.stepTitle}>Training Ground</Text>
+            <Text style={styles.stepSubtitle}>We'll select equipment and exercises that fit your space</Text>
             <View style={styles.optionsGrid}>
               {ENVIRONMENTS.map((e) => (
                 <Pressable
@@ -432,7 +624,7 @@ export default function OnboardingScreen() {
                 >
                   <Ionicons
                     name={e.icon}
-                    size={28}
+                    size={26}
                     color={workoutEnvironment === e.key ? Colors.primary : Colors.textSecondary}
                   />
                   <Text style={[styles.optionLabel, workoutEnvironment === e.key && styles.optionLabelActive]}>
@@ -449,11 +641,11 @@ export default function OnboardingScreen() {
           <View style={styles.stepContent}>
             <View style={styles.iconContainer}>
               <LinearGradient colors={['#66BB6A', '#43A047']} style={styles.iconBg}>
-                <Ionicons name="nutrition" size={40} color="#fff" />
+                <Ionicons name="nutrition" size={36} color="#fff" />
               </LinearGradient>
             </View>
-            <Text style={styles.stepTitle}>Dietary preference</Text>
-            <Text style={styles.stepSubtitle}>Meal plans that match your lifestyle</Text>
+            <Text style={styles.stepTitle}>Fuel Strategy</Text>
+            <Text style={styles.stepSubtitle}>Meal plans that match how you eat</Text>
             {DIETARY_PREFS.map((d) => (
               <Pressable
                 key={d.key}
@@ -508,7 +700,7 @@ export default function OnboardingScreen() {
           )}
           <Pressable
             style={[styles.nextButton, step === 0 && { flex: 1 }]}
-            onPress={() => isLastStep ? handleComplete() : animateStep(step + 1)}
+            onPress={() => isLastStep ? startBlueprint() : animateStep(step + 1)}
           >
             <LinearGradient
               colors={[Colors.primary, Colors.primaryDark]}
@@ -517,7 +709,7 @@ export default function OnboardingScreen() {
               end={{ x: 1, y: 0 }}
             >
               <Text style={styles.nextButtonText}>
-                {isLastStep ? "Let's Go" : 'Continue'}
+                {isLastStep ? 'Build My Blueprint' : 'Continue'}
               </Text>
               <Ionicons name={isLastStep ? "rocket" : "chevron-forward"} size={20} color="#fff" />
             </LinearGradient>
@@ -535,24 +727,25 @@ const createStyles = (C: any) => StyleSheet.create({
   progressDotActive: { backgroundColor: C.primary, width: 20 },
   stepCounter: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: C.textMuted, textAlign: 'center', marginBottom: 24 },
   stepContent: { alignItems: 'center' },
-  iconContainer: { marginBottom: 24 },
-  iconBg: { width: 80, height: 80, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
-  stepTitle: { fontSize: 26, fontFamily: 'Outfit_700Bold', color: C.text, textAlign: 'center', marginBottom: 8 },
-  stepSubtitle: { fontSize: 15, fontFamily: 'Outfit_400Regular', color: C.textSecondary, textAlign: 'center', marginBottom: 28 },
+  iconContainer: { marginBottom: 20 },
+  iconBg: { width: 72, height: 72, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  stepTitle: { fontSize: 24, fontFamily: 'Outfit_700Bold', color: C.text, textAlign: 'center', marginBottom: 6 },
+  stepSubtitle: { fontSize: 14, fontFamily: 'Outfit_400Regular', color: C.textSecondary, textAlign: 'center', marginBottom: 24 },
   fieldContainer: { width: '100%' },
   input: {
-    width: '100%', height: 52, backgroundColor: C.surface, borderRadius: 14,
-    paddingHorizontal: 16, color: C.text, fontSize: 16, fontFamily: 'Outfit_500Medium',
+    width: '100%', height: 50, backgroundColor: C.surface, borderRadius: 14,
+    paddingHorizontal: 16, color: C.text, fontSize: 15, fontFamily: 'Outfit_500Medium',
     borderWidth: 1, borderColor: C.border,
   },
-  textArea: { height: 80, textAlignVertical: 'top', paddingTop: 14 },
-  inputRow: { flexDirection: 'row', gap: 12, width: '100%', marginBottom: 12 },
+  textArea: { height: 76, textAlignVertical: 'top', paddingTop: 14 },
+  inputRow: { flexDirection: 'row', gap: 12, width: '100%', marginBottom: 10 },
   inputGroup: { flex: 1 },
-  inputLabel: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: C.textSecondary, marginBottom: 6 },
-  optionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, width: '100%' },
+  inputLabel: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: C.textSecondary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  sectionLabel: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: C.textSecondary, alignSelf: 'flex-start', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  optionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, width: '100%' },
   optionCard: {
-    width: (width - 60) / 2, paddingVertical: 20, paddingHorizontal: 16,
-    backgroundColor: C.surface, borderRadius: 16, alignItems: 'center', gap: 8,
+    width: (width - 58) / 2, paddingVertical: 16, paddingHorizontal: 14,
+    backgroundColor: C.surface, borderRadius: 14, alignItems: 'center', gap: 6,
     borderWidth: 1.5, borderColor: C.border,
   },
   optionCardActive: { borderColor: C.primary, backgroundColor: C.primary + '14' },
@@ -560,31 +753,31 @@ const createStyles = (C: any) => StyleSheet.create({
   optionLabel: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: C.textSecondary },
   optionLabelActive: { color: C.primary },
   optionLabelActiveAccent: { color: C.accent },
-  activityOption: {
-    width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 16, paddingHorizontal: 16, backgroundColor: C.surface,
-    borderRadius: 14, marginBottom: 10, borderWidth: 1.5, borderColor: C.border,
-  },
-  activityOptionActive: { borderColor: C.accent, backgroundColor: C.accent + '14' },
-  activityTextContainer: { flex: 1 },
-  activityLabel: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: C.text },
-  activityLabelActive: { color: C.accent },
-  activityDesc: { fontSize: 13, fontFamily: 'Outfit_400Regular', color: C.textMuted, marginTop: 2 },
+  optionDesc: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: C.textMuted, textAlign: 'center' },
   switchRow: {
     width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 16, paddingHorizontal: 16, backgroundColor: C.surface,
+    paddingVertical: 14, paddingHorizontal: 16, backgroundColor: C.surface,
     borderRadius: 14, borderWidth: 1, borderColor: C.border,
   },
-  switchLabel: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: C.text },
-  chipScroll: { width: '100%', maxHeight: 50 },
-  chipRow: { gap: 8, paddingVertical: 4 },
-  chip: {
-    paddingHorizontal: 16, paddingVertical: 10, backgroundColor: C.surface,
-    borderRadius: 20, borderWidth: 1, borderColor: C.border,
+  switchLabel: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: C.text },
+  sportGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, width: '100%' },
+  sportCard: {
+    width: (width - 72) / 3, paddingVertical: 12, paddingHorizontal: 8,
+    backgroundColor: C.surface, borderRadius: 12, alignItems: 'center', gap: 4,
+    borderWidth: 1.5, borderColor: C.border,
   },
-  chipActive: { borderColor: C.accent, backgroundColor: C.accent + '1F' },
-  chipText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: C.textSecondary },
-  chipTextActive: { color: C.accent },
+  sportCardActive: { borderColor: C.accent, backgroundColor: C.accent + '14' },
+  sportLabel: { fontSize: 11, fontFamily: 'Outfit_500Medium', color: C.textMuted, textAlign: 'center' },
+  sportLabelActive: { color: C.accent },
+  levelOption: {
+    width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 14, paddingHorizontal: 16, backgroundColor: C.surface,
+    borderRadius: 14, marginBottom: 8, borderWidth: 1.5, borderColor: C.border,
+  },
+  levelOptionActive: { borderColor: C.accent, backgroundColor: C.accent + '14' },
+  levelLabel: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: C.text },
+  levelLabelActive: { color: C.accent },
+  levelDesc: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: C.textMuted, marginTop: 2 },
   listOption: {
     width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 14, paddingHorizontal: 16, backgroundColor: C.surface,
@@ -602,7 +795,7 @@ const createStyles = (C: any) => StyleSheet.create({
   nextButton: { flex: 1 },
   nextButtonGradient: {
     height: 52, borderRadius: 14, flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'center', gap: 4,
+    justifyContent: 'center', gap: 6,
   },
   nextButtonText: { fontSize: 16, fontFamily: 'Outfit_700Bold', color: '#fff' },
 });

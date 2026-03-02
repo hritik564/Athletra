@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', backgroundColor: Colors.surface,
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12,
   },
-  statsValue: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: Colors.primary },
+  statsValue: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: Colors.accent },
   statsLabel: { fontSize: 10, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary },
   summaryBar: {
     flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center',
@@ -257,7 +257,7 @@ const styles = StyleSheet.create({
   },
   workoutHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   workoutIcon: {
-    width: 42, height: 42, borderRadius: 12, backgroundColor: 'rgba(255,107,61,0.12)',
+    width: 42, height: 42, borderRadius: 12, backgroundColor: 'rgba(27,127,227,0.12)',
     alignItems: 'center', justifyContent: 'center',
   },
   workoutIconDone: { backgroundColor: 'rgba(76,175,80,0.12)' },

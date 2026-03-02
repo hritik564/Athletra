@@ -243,7 +243,7 @@ function MessageBubble({
             style={styles.savePlanBtn}
             onPress={() => onSaveMealPlan?.(mealPlan)}
           >
-            <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.savePlanGradient}>
+            <LinearGradient colors={[Colors.accent, Colors.accentDark]} style={styles.savePlanGradient}>
               <Ionicons name="restaurant" size={16} color="#fff" />
               <Text style={styles.savePlanText}>Save to Meals</Text>
             </LinearGradient>
@@ -260,7 +260,7 @@ function MessageBubble({
             style={styles.savePlanBtn}
             onPress={() => onSaveWorkoutPlan?.(workoutPlan)}
           >
-            <LinearGradient colors={['#00BFA5', '#00897B']} style={styles.savePlanGradient}>
+            <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.savePlanGradient}>
               <Ionicons name="barbell" size={16} color="#fff" />
               <Text style={styles.savePlanText}>Save to Workouts</Text>
             </LinearGradient>
@@ -646,7 +646,7 @@ export default function CoachScreen() {
 
       {!hasMessages ? (
         <View style={styles.emptyState}>
-          <LinearGradient colors={[Colors.primary, '#FF9800']} style={styles.emptyIcon}>
+          <LinearGradient colors={[Colors.primary, Colors.accent]} style={styles.emptyIcon}>
             <Ionicons name="sparkles" size={36} color="#fff" />
           </LinearGradient>
           <Text style={styles.emptyTitle}>Your AI Coach</Text>
@@ -761,7 +761,7 @@ const styles = StyleSheet.create({
   bubbleRowUser: { flexDirection: 'row-reverse' },
   coachAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
   bubble: { maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
-  bubbleUser: { backgroundColor: Colors.primary, borderBottomRightRadius: 4 },
+  bubbleUser: { backgroundColor: Colors.accent, borderBottomRightRadius: 4 },
   bubbleAssistant: { backgroundColor: Colors.surface, borderBottomLeftRadius: 4 },
   bubbleText: { fontSize: 15, fontFamily: 'Outfit_400Regular', color: Colors.text, lineHeight: 21 },
   bubbleTextUser: { color: '#fff' },
@@ -773,7 +773,7 @@ const styles = StyleSheet.create({
   voiceLabelText: { fontSize: 11, fontFamily: 'Outfit_500Medium', color: '#fff' },
   playBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8,
-    paddingVertical: 6, paddingHorizontal: 10, backgroundColor: 'rgba(255,107,61,0.12)',
+    paddingVertical: 6, paddingHorizontal: 10, backgroundColor: 'rgba(27,127,227,0.12)',
     borderRadius: 12, alignSelf: 'flex-start',
   },
   playBtnText: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: Colors.primary },
@@ -791,8 +791,8 @@ const styles = StyleSheet.create({
   savedBadgeText: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: Colors.success },
   recordingBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
-    paddingVertical: 10, backgroundColor: 'rgba(255,107,61,0.08)',
-    borderTopWidth: 1, borderTopColor: 'rgba(255,107,61,0.2)',
+    paddingVertical: 10, backgroundColor: 'rgba(27,127,227,0.08)',
+    borderTopWidth: 1, borderTopColor: 'rgba(27,127,227,0.2)',
   },
   recordingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.error },
   recordingTime: { fontSize: 16, fontFamily: 'Outfit_700Bold', color: Colors.primary },
@@ -800,7 +800,7 @@ const styles = StyleSheet.create({
   inputArea: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.border },
   inputContainer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   micBtn: {
-    width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,107,61,0.12)',
+    width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(27,127,227,0.12)',
     alignItems: 'center', justifyContent: 'center',
   },
   micBtnDisabled: { opacity: 0.4 },

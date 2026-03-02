@@ -16,7 +16,7 @@ Preferred communication style: Simple, everyday language.
 - **Routing**: Expo Router with file-based routing (`app/` directory). Uses typed routes and a tab-based layout for the main experience (`(tabs)/` group with Home, Meals, Coach, Workouts, Progress tabs)
 - **State Management**: React Context for user profile (`UserContext`) and fitness data (`FitnessContext`). TanStack React Query for server-state and API calls
 - **Local Persistence**: AsyncStorage for offline-first data (user profile, meals, workouts, weight history, streaks). The app works without being connected to the backend for most tracking features
-- **Styling**: Custom dark theme defined in `constants/colors.ts` with an orange/teal accent palette. Uses `expo-linear-gradient` for gradient backgrounds, `react-native-svg` for charts and rings
+- **Styling**: Custom dark theme defined in `constants/colors.ts` with a calming blue primary (#1B7FE3) and energizing orange accent (#FF6B35) palette. Deep navy background (#0B1120). Uses `expo-linear-gradient` for gradient backgrounds, `react-native-svg` for charts and rings
 - **Fonts**: Outfit font family (Regular, Medium, SemiBold, Bold) via `@expo-google-fonts/outfit`
 - **Audio**: expo-audio for voice recording and playback (replaced deprecated expo-av)
 - **Key UI Libraries**: react-native-gesture-handler, react-native-reanimated, react-native-keyboard-controller, expo-haptics for tactile feedback

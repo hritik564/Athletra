@@ -55,9 +55,9 @@ function WeightChart({ data }: { data: { date: string; weight: number }[] }) {
             </View>
           );
         })}
-        <Polyline points={polylinePoints} fill="none" stroke={Colors.accent} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+        <Polyline points={polylinePoints} fill="none" stroke={Colors.primary} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
         {points.map((p, i) => (
-          <SvgCircle key={i} cx={p.x} cy={p.y} r={4} fill={Colors.accent} stroke={Colors.background} strokeWidth={2} />
+          <SvgCircle key={i} cx={p.x} cy={p.y} r={4} fill={Colors.primary} stroke={Colors.background} strokeWidth={2} />
         ))}
       </Svg>
     </View>
@@ -196,7 +196,7 @@ export default function ProgressScreen() {
           <View style={styles.achievementRow}>
             {streak.currentStreak >= 3 && (
               <View style={styles.achievementBadge}>
-                <LinearGradient colors={[Colors.warning, '#F57C00']} style={styles.achievementIcon}>
+                <LinearGradient colors={[Colors.warning, Colors.accentDark]} style={styles.achievementIcon}>
                   <Ionicons name="flame" size={24} color="#fff" />
                 </LinearGradient>
                 <Text style={styles.achievementLabel}>3-Day Streak</Text>
@@ -241,7 +241,7 @@ export default function ProgressScreen() {
               autoFocus
             />
             <Pressable style={styles.saveBtn} onPress={handleLogWeight}>
-              <LinearGradient colors={[Colors.accent, Colors.accentDark]} style={styles.saveBtnGradient}>
+              <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.saveBtnGradient}>
                 <Text style={styles.saveBtnText}>Save</Text>
               </LinearGradient>
             </Pressable>

@@ -229,7 +229,7 @@ export default function OnboardingScreen() {
         return (
           <View style={styles.stepContent}>
             <View style={styles.iconContainer}>
-              <LinearGradient colors={[Colors.primary, '#FF9800']} style={styles.iconBg}>
+              <LinearGradient colors={[Colors.primary, Colors.accent]} style={styles.iconBg}>
                 <Ionicons name="trophy" size={40} color="#fff" />
               </LinearGradient>
             </View>

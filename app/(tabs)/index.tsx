@@ -171,7 +171,7 @@ export default function DashboardScreen() {
       <View style={styles.stepsSection}>
         <View style={styles.stepsHeader}>
           <View style={styles.stepsHeaderLeft}>
-            <Ionicons name="footsteps" size={20} color={Colors.accent} />
+            <Ionicons name="footsteps" size={20} color={Colors.primary} />
             <Text style={styles.sectionTitleInline}>Steps</Text>
           </View>
           <Pressable onPress={() => { setGoalInput(String(stepsGoal)); setShowGoalEdit(true); }}>
@@ -187,7 +187,7 @@ export default function DashboardScreen() {
               />
               <Circle
                 cx={50} cy={50} r={42}
-                stroke={Colors.accent} strokeWidth={8} fill="none"
+                stroke={Colors.primary} strokeWidth={8} fill="none"
                 strokeDasharray={`${2 * Math.PI * 42}`}
                 strokeDashoffset={2 * Math.PI * 42 * (1 - Math.min(todayData.steps / stepsGoal, 1))}
                 strokeLinecap="round"
@@ -205,8 +205,8 @@ export default function DashboardScreen() {
               : `${(stepsGoal - todayData.steps).toLocaleString()} to go`}
           </Text>
           <View style={styles.autoTrackBadge}>
-            <Ionicons name={pedometerAvailable ? "radio" : "phone-portrait-outline"} size={12} color={pedometerAvailable ? Colors.success : Colors.accent} />
-            <Text style={[styles.autoTrackText, !pedometerAvailable && { color: Colors.accent }]}>
+            <Ionicons name={pedometerAvailable ? "radio" : "phone-portrait-outline"} size={12} color={pedometerAvailable ? Colors.success : Colors.primary} />
+            <Text style={[styles.autoTrackText, !pedometerAvailable && { color: Colors.primary }]}>
               {pedometerAvailable ? 'Auto-tracking from sensor' : 'Open on your phone to auto-track'}
             </Text>
           </View>
@@ -251,8 +251,8 @@ export default function DashboardScreen() {
       <View style={styles.quickActionsRow}>
         <QuickAction icon="restaurant" label="Log Meal" onPress={() => router.push('/(tabs)/meals')} gradient={[Colors.primary, Colors.primaryDark]} />
         <QuickAction icon="barbell" label="Workout" onPress={() => router.push('/(tabs)/coach')} gradient={[Colors.accent, Colors.accentDark]} />
-        <QuickAction icon="chatbubble" label="Ask Coach" onPress={() => router.push('/(tabs)/coach')} gradient={['#7C4DFF', '#651FFF']} />
-        <QuickAction icon="analytics" label="Progress" onPress={() => router.push('/(tabs)/progress')} gradient={[Colors.warning, '#F57C00']} />
+        <QuickAction icon="chatbubble" label="Ask Coach" onPress={() => router.push('/(tabs)/coach')} gradient={[Colors.primaryLight, Colors.primary]} />
+        <QuickAction icon="analytics" label="Progress" onPress={() => router.push('/(tabs)/progress')} gradient={[Colors.warning, Colors.accentDark]} />
       </View>
 
       {todayData.workouts.length > 0 && (
@@ -326,7 +326,7 @@ const styles = StyleSheet.create({
   stepsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   stepsHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sectionTitleInline: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: Colors.text },
-  stepsGoalBtn: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.accent, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: 'rgba(0,191,165,0.1)', borderRadius: 10 },
+  stepsGoalBtn: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.primary, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: 'rgba(27,127,227,0.1)', borderRadius: 10 },
   stepsCard: {
     backgroundColor: Colors.surface, borderRadius: 16, padding: 20,
     alignItems: 'center', borderWidth: 1, borderColor: Colors.border,

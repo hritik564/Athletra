@@ -189,7 +189,7 @@ export default function MealsScreen() {
               onPress={handleAISuggest}
               disabled={suggesting}
             >
-              <LinearGradient colors={['#7C4DFF', '#651FFF']} style={styles.aiSuggestGradient}>
+              <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.aiSuggestGradient}>
                 <Ionicons name="sparkles" size={16} color="#fff" />
                 <Text style={styles.aiSuggestText}>
                   {suggesting ? 'Thinking...' : 'AI Suggest'}
@@ -242,7 +242,7 @@ export default function MealsScreen() {
             </View>
 
             <Pressable style={styles.saveBtn} onPress={handleAddMeal}>
-              <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.saveBtnGradient}>
+              <LinearGradient colors={[Colors.accent, Colors.accentDark]} style={styles.saveBtnGradient}>
                 <Text style={styles.saveBtnText}>Add Meal</Text>
               </LinearGradient>
             </Pressable>
@@ -271,16 +271,16 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.border,
   },
   mealCardLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  mealTypeIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,107,61,0.1)', alignItems: 'center', justifyContent: 'center' },
+  mealTypeIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(27,127,227,0.12)', alignItems: 'center', justifyContent: 'center' },
   mealInfo: { flex: 1 },
   mealName: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: Colors.text },
   mealMacros: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary, marginTop: 2 },
   mealCardRight: { alignItems: 'flex-end', gap: 2 },
-  mealCalories: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: Colors.primary },
+  mealCalories: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: Colors.accent },
   mealCalLabel: { fontSize: 10, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary },
   addMealBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
-    paddingVertical: 10, borderWidth: 1, borderColor: Colors.border, borderRadius: 12,
+    paddingVertical: 10, borderWidth: 1, borderColor: Colors.primary, borderRadius: 12,
     borderStyle: 'dashed',
   },
   addMealBtnText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: Colors.primary },

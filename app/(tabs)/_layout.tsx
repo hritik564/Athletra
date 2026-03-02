@@ -6,7 +6,7 @@ import { Platform, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import React from "react";
-import Colors from "@/constants/colors";
+import { useColors, useTheme } from "@/contexts/ThemeContext";
 
 function NativeTabLayout() {
   return (
@@ -36,6 +36,8 @@ function NativeTabLayout() {
 }
 
 function ClassicTabLayout() {
+  const Colors = useColors();
+  const { isDark } = useTheme();
   const safeAreaInsets = useSafeAreaInsets();
   const isWeb = Platform.OS === "web";
   const isIOS = Platform.OS === "ios";
@@ -56,7 +58,7 @@ function ClassicTabLayout() {
         },
         tabBarBackground: () =>
           isIOS ? (
-            <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFill} />
+            <BlurView intensity={100} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
           ) : isWeb ? (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: Colors.surface }]} />
           ) : null,

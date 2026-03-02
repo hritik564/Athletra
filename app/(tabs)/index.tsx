@@ -5,12 +5,22 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
+import { useColors } from '@/contexts/ThemeContext';
 import { useUser } from '@/contexts/UserContext';
 import { useFitness } from '@/contexts/FitnessContext';
 import Svg, { Circle } from 'react-native-svg';
+import { ThemeColors } from '@/constants/colors';
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
 
 function CalorieRing({ consumed, target, size = 160 }: { consumed: number; target: number; size?: number }) {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   const strokeWidth = 12;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -41,6 +51,8 @@ function CalorieRing({ consumed, target, size = 160 }: { consumed: number; targe
 }
 
 function MacroBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   const progress = Math.min(value / max, 1);
   return (
     <View style={styles.macroItem}>
@@ -56,6 +68,8 @@ function MacroBar({ label, value, max, color }: { label: string; value: number; 
 }
 
 function QuickAction({ icon, label, onPress, gradient }: { icon: string; label: string; onPress: () => void; gradient: string[] }) {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   return (
     <Pressable style={styles.quickAction} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); }}>
       <LinearGradient colors={gradient as [string, string]} style={styles.quickActionIcon}>
@@ -67,6 +81,8 @@ function QuickAction({ icon, label, onPress, gradient }: { icon: string; label: 
 }
 
 export default function DashboardScreen() {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   const insets = useSafeAreaInsets();
   const { profile } = useUser();
   const { todayData, totalCaloriesConsumed, totalCaloriesBurned, macros, streak, addWater, removeWater, stepsGoal, updateStepsGoal, pedometerAvailable } = useFitness();
@@ -277,14 +293,14 @@ export default function DashboardScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (Colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 16 },
   greeting: { fontSize: 14, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary },
   userName: { fontSize: 24, fontFamily: 'Outfit_700Bold', color: Colors.text },
   avatarButton: {},
   avatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  streakBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, marginHorizontal: 20, marginBottom: 16, backgroundColor: 'rgba(255,183,77,0.1)', borderRadius: 12 },
+  streakBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, marginHorizontal: 20, marginBottom: 16, backgroundColor: hexToRgba(Colors.warning, 0.1), borderRadius: 12 },
   streakText: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: Colors.warning },
   calorieCard: { marginHorizontal: 20, marginBottom: 20 },
   calorieCardInner: { borderRadius: 20, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
@@ -318,7 +334,7 @@ const styles = StyleSheet.create({
   quickActionLabel: { fontSize: 11, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary },
   workoutSection: { marginBottom: 20 },
   workoutCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: 20, padding: 16, backgroundColor: Colors.surface, borderRadius: 14, marginBottom: 8, borderWidth: 1, borderColor: Colors.border },
-  workoutCardDone: { borderColor: Colors.success, backgroundColor: 'rgba(76,175,80,0.06)' },
+  workoutCardDone: { borderColor: Colors.success, backgroundColor: hexToRgba(Colors.success, 0.06) },
   workoutInfo: { flex: 1 },
   workoutName: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: Colors.text },
   workoutMeta: { fontSize: 13, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary, marginTop: 2 },
@@ -326,7 +342,7 @@ const styles = StyleSheet.create({
   stepsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   stepsHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sectionTitleInline: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: Colors.text },
-  stepsGoalBtn: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.primary, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: 'rgba(27,127,227,0.1)', borderRadius: 10 },
+  stepsGoalBtn: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.primary, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: hexToRgba(Colors.primary, 0.1), borderRadius: 10 },
   stepsCard: {
     backgroundColor: Colors.surface, borderRadius: 16, padding: 20,
     alignItems: 'center', borderWidth: 1, borderColor: Colors.border,
@@ -336,7 +352,7 @@ const styles = StyleSheet.create({
   stepsCount: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: Colors.text },
   stepsLabel: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary, marginTop: -2 },
   stepsRemaining: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary, marginBottom: 4 },
-  autoTrackBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: 'rgba(76,175,80,0.08)', borderRadius: 20 },
+  autoTrackBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: hexToRgba(Colors.success, 0.08), borderRadius: 20 },
   autoTrackText: { fontSize: 11, fontFamily: 'Outfit_500Medium', color: Colors.success },
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center',

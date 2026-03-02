@@ -8,7 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '@/contexts/UserContext';
-import Colors from '@/constants/colors';
+import { useColors } from '@/contexts/ThemeContext';
 import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
@@ -72,6 +72,8 @@ function calculateCalories(weight: number, height: number, age: number, activity
 }
 
 export default function OnboardingScreen() {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   const { profile, updateProfile, isLoading } = useUser();
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState(0);
@@ -526,75 +528,75 @@ export default function OnboardingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (C: any) => StyleSheet.create({
   container: { flex: 1 },
   progressContainer: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 8 },
-  progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.surfaceLight },
-  progressDotActive: { backgroundColor: Colors.primary, width: 20 },
-  stepCounter: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.textMuted, textAlign: 'center', marginBottom: 24 },
+  progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.surfaceLight },
+  progressDotActive: { backgroundColor: C.primary, width: 20 },
+  stepCounter: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: C.textMuted, textAlign: 'center', marginBottom: 24 },
   stepContent: { alignItems: 'center' },
   iconContainer: { marginBottom: 24 },
   iconBg: { width: 80, height: 80, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
-  stepTitle: { fontSize: 26, fontFamily: 'Outfit_700Bold', color: Colors.text, textAlign: 'center', marginBottom: 8 },
-  stepSubtitle: { fontSize: 15, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary, textAlign: 'center', marginBottom: 28 },
+  stepTitle: { fontSize: 26, fontFamily: 'Outfit_700Bold', color: C.text, textAlign: 'center', marginBottom: 8 },
+  stepSubtitle: { fontSize: 15, fontFamily: 'Outfit_400Regular', color: C.textSecondary, textAlign: 'center', marginBottom: 28 },
   fieldContainer: { width: '100%' },
   input: {
-    width: '100%', height: 52, backgroundColor: Colors.surface, borderRadius: 14,
-    paddingHorizontal: 16, color: Colors.text, fontSize: 16, fontFamily: 'Outfit_500Medium',
-    borderWidth: 1, borderColor: Colors.border,
+    width: '100%', height: 52, backgroundColor: C.surface, borderRadius: 14,
+    paddingHorizontal: 16, color: C.text, fontSize: 16, fontFamily: 'Outfit_500Medium',
+    borderWidth: 1, borderColor: C.border,
   },
   textArea: { height: 80, textAlignVertical: 'top', paddingTop: 14 },
   inputRow: { flexDirection: 'row', gap: 12, width: '100%', marginBottom: 12 },
   inputGroup: { flex: 1 },
-  inputLabel: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary, marginBottom: 6 },
+  inputLabel: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: C.textSecondary, marginBottom: 6 },
   optionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, width: '100%' },
   optionCard: {
     width: (width - 60) / 2, paddingVertical: 20, paddingHorizontal: 16,
-    backgroundColor: Colors.surface, borderRadius: 16, alignItems: 'center', gap: 8,
-    borderWidth: 1.5, borderColor: Colors.border,
+    backgroundColor: C.surface, borderRadius: 16, alignItems: 'center', gap: 8,
+    borderWidth: 1.5, borderColor: C.border,
   },
-  optionCardActive: { borderColor: Colors.primary, backgroundColor: 'rgba(255,107,61,0.08)' },
-  optionCardActiveAccent: { borderColor: Colors.accent, backgroundColor: 'rgba(0,191,165,0.08)' },
-  optionLabel: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: Colors.textSecondary },
-  optionLabelActive: { color: Colors.primary },
-  optionLabelActiveAccent: { color: Colors.accent },
+  optionCardActive: { borderColor: C.primary, backgroundColor: C.primary + '14' },
+  optionCardActiveAccent: { borderColor: C.accent, backgroundColor: C.accent + '14' },
+  optionLabel: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: C.textSecondary },
+  optionLabelActive: { color: C.primary },
+  optionLabelActiveAccent: { color: C.accent },
   activityOption: {
     width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 16, paddingHorizontal: 16, backgroundColor: Colors.surface,
-    borderRadius: 14, marginBottom: 10, borderWidth: 1.5, borderColor: Colors.border,
+    paddingVertical: 16, paddingHorizontal: 16, backgroundColor: C.surface,
+    borderRadius: 14, marginBottom: 10, borderWidth: 1.5, borderColor: C.border,
   },
-  activityOptionActive: { borderColor: Colors.accent, backgroundColor: 'rgba(0,191,165,0.08)' },
+  activityOptionActive: { borderColor: C.accent, backgroundColor: C.accent + '14' },
   activityTextContainer: { flex: 1 },
-  activityLabel: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: Colors.text },
-  activityLabelActive: { color: Colors.accent },
-  activityDesc: { fontSize: 13, fontFamily: 'Outfit_400Regular', color: Colors.textMuted, marginTop: 2 },
+  activityLabel: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: C.text },
+  activityLabelActive: { color: C.accent },
+  activityDesc: { fontSize: 13, fontFamily: 'Outfit_400Regular', color: C.textMuted, marginTop: 2 },
   switchRow: {
     width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 16, paddingHorizontal: 16, backgroundColor: Colors.surface,
-    borderRadius: 14, borderWidth: 1, borderColor: Colors.border,
+    paddingVertical: 16, paddingHorizontal: 16, backgroundColor: C.surface,
+    borderRadius: 14, borderWidth: 1, borderColor: C.border,
   },
-  switchLabel: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: Colors.text },
+  switchLabel: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: C.text },
   chipScroll: { width: '100%', maxHeight: 50 },
   chipRow: { gap: 8, paddingVertical: 4 },
   chip: {
-    paddingHorizontal: 16, paddingVertical: 10, backgroundColor: Colors.surface,
-    borderRadius: 20, borderWidth: 1, borderColor: Colors.border,
+    paddingHorizontal: 16, paddingVertical: 10, backgroundColor: C.surface,
+    borderRadius: 20, borderWidth: 1, borderColor: C.border,
   },
-  chipActive: { borderColor: Colors.accent, backgroundColor: 'rgba(0,191,165,0.12)' },
-  chipText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary },
-  chipTextActive: { color: Colors.accent },
+  chipActive: { borderColor: C.accent, backgroundColor: C.accent + '1F' },
+  chipText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: C.textSecondary },
+  chipTextActive: { color: C.accent },
   listOption: {
     width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 14, paddingHorizontal: 16, backgroundColor: Colors.surface,
-    borderRadius: 14, marginBottom: 8, borderWidth: 1.5, borderColor: Colors.border,
+    paddingVertical: 14, paddingHorizontal: 16, backgroundColor: C.surface,
+    borderRadius: 14, marginBottom: 8, borderWidth: 1.5, borderColor: C.border,
   },
-  listOptionActive: { borderColor: Colors.accent, backgroundColor: 'rgba(0,191,165,0.08)' },
-  listOptionLabel: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: Colors.text },
-  listOptionLabelActive: { color: Colors.accent },
-  buttonContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, backgroundColor: Colors.background },
+  listOptionActive: { borderColor: C.accent, backgroundColor: C.accent + '14' },
+  listOptionLabel: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: C.text },
+  listOptionLabelActive: { color: C.accent },
+  buttonContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, backgroundColor: C.background },
   buttonRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   backButton: {
-    width: 48, height: 48, borderRadius: 14, backgroundColor: Colors.surface,
+    width: 48, height: 48, borderRadius: 14, backgroundColor: C.surface,
     alignItems: 'center', justifyContent: 'center',
   },
   nextButton: { flex: 1 },

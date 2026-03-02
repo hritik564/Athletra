@@ -7,10 +7,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
+import { useColors } from '@/contexts/ThemeContext';
 import { useFitness, Workout, WorkoutExercise } from '@/contexts/FitnessContext';
 
 function ExerciseRow({ exercise, onToggle }: { exercise: WorkoutExercise; onToggle: () => void }) {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   return (
     <Pressable style={styles.exerciseRow} onPress={onToggle}>
       <View style={[styles.exerciseCheck, exercise.completed && styles.exerciseCheckDone]}>
@@ -43,6 +45,8 @@ function WorkoutCard({
   onToggleExercise: (exerciseIndex: number) => void;
   onRemove: () => void;
 }) {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   const [expanded, setExpanded] = useState(false);
   const completedCount = workout.exercises.filter(e => e.completed).length;
   const totalCount = workout.exercises.length;
@@ -137,6 +141,8 @@ function WorkoutCard({
 }
 
 export default function WorkoutsScreen() {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   const insets = useSafeAreaInsets();
   const { todayData, completeWorkout, removeWorkout, toggleExercise } = useFitness();
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
@@ -223,74 +229,74 @@ export default function WorkoutsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (C: any) => StyleSheet.create({
   container: { flex: 1 },
   headerArea: {
     paddingHorizontal: 20, paddingBottom: 16, flexDirection: 'row',
     justifyContent: 'space-between', alignItems: 'center',
   },
-  screenTitle: { fontSize: 28, fontFamily: 'Outfit_700Bold', color: Colors.text },
+  screenTitle: { fontSize: 28, fontFamily: 'Outfit_700Bold', color: C.text },
   statsBadge: {
-    alignItems: 'center', backgroundColor: Colors.surface,
+    alignItems: 'center', backgroundColor: C.surface,
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12,
   },
-  statsValue: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: Colors.accent },
-  statsLabel: { fontSize: 10, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary },
+  statsValue: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: C.accent },
+  statsLabel: { fontSize: 10, fontFamily: 'Outfit_400Regular', color: C.textSecondary },
   summaryBar: {
     flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center',
     marginHorizontal: 20, marginBottom: 16, paddingVertical: 12,
-    backgroundColor: Colors.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: C.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: C.border,
   },
   summaryItem: { alignItems: 'center' },
-  summaryNumber: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: Colors.text },
-  summaryLabel: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary },
-  summaryDivider: { width: 1, height: 28, backgroundColor: Colors.border },
+  summaryNumber: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: C.text },
+  summaryLabel: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: C.textSecondary },
+  summaryDivider: { width: 1, height: 28, backgroundColor: C.border },
   workoutCard: {
-    backgroundColor: Colors.surface, borderRadius: 16, marginBottom: 12,
-    borderWidth: 1, borderColor: Colors.border, overflow: 'hidden',
+    backgroundColor: C.surface, borderRadius: 16, marginBottom: 12,
+    borderWidth: 1, borderColor: C.border, overflow: 'hidden',
   },
-  workoutCardCompleted: { borderColor: 'rgba(76,175,80,0.3)' },
+  workoutCardCompleted: { borderColor: C.success + '4D' },
   workoutHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     padding: 16,
   },
   workoutHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   workoutIcon: {
-    width: 42, height: 42, borderRadius: 12, backgroundColor: 'rgba(27,127,227,0.12)',
+    width: 42, height: 42, borderRadius: 12, backgroundColor: C.primary + '1F',
     alignItems: 'center', justifyContent: 'center',
   },
-  workoutIconDone: { backgroundColor: 'rgba(76,175,80,0.12)' },
-  workoutName: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: Colors.text },
-  workoutMeta: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary, marginTop: 2 },
+  workoutIconDone: { backgroundColor: C.success + '1F' },
+  workoutName: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: C.text },
+  workoutMeta: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: C.textSecondary, marginTop: 2 },
   workoutHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  progressText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: Colors.textSecondary },
+  progressText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: C.textSecondary },
   completedBadge: {
-    backgroundColor: 'rgba(76,175,80,0.15)', paddingHorizontal: 10, paddingVertical: 3,
+    backgroundColor: C.success + '26', paddingHorizontal: 10, paddingVertical: 3,
     borderRadius: 8,
   },
-  completedBadgeText: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: Colors.success },
+  completedBadgeText: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: C.success },
   progressBar: {
-    height: 3, backgroundColor: Colors.surfaceLight, marginHorizontal: 16,
+    height: 3, backgroundColor: C.surfaceLight, marginHorizontal: 16,
   },
   progressFill: {
-    height: 3, backgroundColor: Colors.primary, borderRadius: 2,
+    height: 3, backgroundColor: C.primary, borderRadius: 2,
   },
   exerciseList: { paddingHorizontal: 16, paddingBottom: 16 },
   exerciseRow: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
+    borderBottomWidth: 1, borderBottomColor: C.border,
   },
   exerciseCheck: {
     width: 24, height: 24, borderRadius: 12, borderWidth: 2,
-    borderColor: Colors.textMuted, alignItems: 'center', justifyContent: 'center', marginTop: 2,
+    borderColor: C.textMuted, alignItems: 'center', justifyContent: 'center', marginTop: 2,
   },
-  exerciseCheckDone: { backgroundColor: Colors.success, borderColor: Colors.success },
+  exerciseCheckDone: { backgroundColor: C.success, borderColor: C.success },
   exerciseInfo: { flex: 1 },
-  exerciseName: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: Colors.text },
-  exerciseNameDone: { textDecorationLine: 'line-through', color: Colors.textMuted },
-  exerciseDetail: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary, marginTop: 2 },
-  exerciseDesc: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: Colors.textMuted, marginTop: 2, fontStyle: 'italic' },
+  exerciseName: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: C.text },
+  exerciseNameDone: { textDecorationLine: 'line-through', color: C.textMuted },
+  exerciseDetail: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: C.textSecondary, marginTop: 2 },
+  exerciseDesc: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: C.textMuted, marginTop: 2, fontStyle: 'italic' },
   cardActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
   completeBtn: { flex: 1 },
   completeBtnGradient: {
@@ -301,14 +307,14 @@ const styles = StyleSheet.create({
   removeBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 14, height: 42, borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(239,83,80,0.3)',
+    borderWidth: 1, borderColor: C.error + '4D',
   },
-  removeBtnText: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.error },
+  removeBtnText: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: C.error },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
   emptyIcon: { marginBottom: 16 },
-  emptyTitle: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: Colors.text, marginBottom: 8 },
+  emptyTitle: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: C.text, marginBottom: 8 },
   emptySubtitle: {
-    fontSize: 14, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary,
+    fontSize: 14, fontFamily: 'Outfit_400Regular', color: C.textSecondary,
     textAlign: 'center', lineHeight: 20, marginBottom: 24,
   },
   goToCoachBtn: { width: '100%' },

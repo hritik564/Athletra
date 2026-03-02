@@ -8,18 +8,27 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
 import { UserProvider } from "@/contexts/UserContext";
 import { FitnessProvider } from "@/contexts/FitnessContext";
+import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 import { useFonts, Outfit_400Regular, Outfit_500Medium, Outfit_600SemiBold, Outfit_700Bold } from "@expo-google-fonts/outfit";
 import { StatusBar } from "expo-status-bar";
 
 SplashScreen.preventAutoHideAsync();
 
+function ThemedStatusBar() {
+  const { isDark } = useTheme();
+  return <StatusBar style={isDark ? "light" : "dark"} />;
+}
+
 function RootLayoutNav() {
   return (
-    <Stack screenOptions={{ headerShown: false, headerBackTitle: "Back" }}>
-      <Stack.Screen name="index" />
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="profile" options={{ presentation: "modal" }} />
-    </Stack>
+    <>
+      <ThemedStatusBar />
+      <Stack screenOptions={{ headerShown: false, headerBackTitle: "Back" }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="profile" options={{ presentation: "modal" }} />
+      </Stack>
+    </>
   );
 }
 
@@ -44,12 +53,13 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <UserProvider>
           <FitnessProvider>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <KeyboardProvider>
-                <StatusBar style="light" />
-                <RootLayoutNav />
-              </KeyboardProvider>
-            </GestureHandlerRootView>
+            <ThemeProvider>
+              <GestureHandlerRootView style={{ flex: 1 }}>
+                <KeyboardProvider>
+                  <RootLayoutNav />
+                </KeyboardProvider>
+              </GestureHandlerRootView>
+            </ThemeProvider>
           </FitnessProvider>
         </UserProvider>
       </QueryClientProvider>

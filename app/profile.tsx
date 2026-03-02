@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Colors from '@/constants/colors';
+import { useColors, useTheme } from '@/contexts/ThemeContext';
 import { useUser } from '@/contexts/UserContext';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 
@@ -21,6 +21,9 @@ const GOALS = [
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const Colors = useColors();
+  const { isDark, toggleTheme } = useTheme();
+  const styles = createStyles(Colors);
   const { profile, updateProfile } = useUser();
   const [name, setName] = useState(profile.name);
   const [age, setAge] = useState(String(profile.age));
@@ -117,6 +120,17 @@ export default function ProfileScreen() {
           ))}
         </View>
 
+        <Text style={styles.sectionLabel}>Appearance</Text>
+        <Pressable style={styles.fieldRow} onPress={toggleTheme}>
+          <View style={styles.toggleLeft}>
+            <Ionicons name={isDark ? 'moon-outline' : 'sunny-outline'} size={20} color={Colors.primary} />
+            <Text style={styles.fieldLabel}>Dark Mode</Text>
+          </View>
+          <View style={[styles.toggleTrack, isDark && styles.toggleTrackActive]}>
+            <View style={[styles.toggleThumb, isDark && styles.toggleThumbActive]} />
+          </View>
+        </Pressable>
+
         <Pressable style={[styles.resetBtn, showResetConfirm && styles.resetBtnConfirm]} onPress={handleReset}>
           <Text style={styles.resetBtnText}>
             {showResetConfirm ? 'Tap again to confirm reset' : 'Reset All Data'}
@@ -132,37 +146,48 @@ export default function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (C: any) => StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: Colors.border,
+    paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border,
   },
-  headerTitle: { fontSize: 17, fontFamily: 'Outfit_700Bold', color: Colors.text },
+  headerTitle: { fontSize: 17, fontFamily: 'Outfit_700Bold', color: C.text },
   avatarSection: { alignItems: 'center', marginBottom: 32 },
   avatarLarge: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  profileName: { fontSize: 22, fontFamily: 'Outfit_700Bold', color: Colors.text },
-  sectionLabel: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: Colors.textSecondary, marginBottom: 8, marginTop: 16 },
+  profileName: { fontSize: 22, fontFamily: 'Outfit_700Bold', color: C.text },
+  sectionLabel: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: C.textSecondary, marginBottom: 8, marginTop: 16 },
   fieldRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
-    marginBottom: 8, borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: C.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
+    marginBottom: 8, borderWidth: 1, borderColor: C.border,
   },
-  fieldLabel: { fontSize: 15, fontFamily: 'Outfit_500Medium', color: Colors.text },
-  fieldInput: { fontSize: 15, fontFamily: 'Outfit_500Medium', color: Colors.primary, textAlign: 'right', minWidth: 80 },
+  fieldLabel: { fontSize: 15, fontFamily: 'Outfit_500Medium', color: C.text },
+  fieldInput: { fontSize: 15, fontFamily: 'Outfit_500Medium', color: C.primary, textAlign: 'right', minWidth: 80 },
   goalOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   goalOption: {
     paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20,
-    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
   },
-  goalOptionActive: { borderColor: Colors.primary, backgroundColor: 'rgba(255,107,61,0.1)' },
-  goalOptionText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary },
-  goalOptionTextActive: { color: Colors.primary },
+  goalOptionActive: { borderColor: C.primary, backgroundColor: C.primary + '1A' },
+  goalOptionText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: C.textSecondary },
+  goalOptionTextActive: { color: C.primary },
+  toggleLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  toggleTrack: {
+    width: 48, height: 28, borderRadius: 14, backgroundColor: C.border,
+    justifyContent: 'center', paddingHorizontal: 3,
+  },
+  toggleTrackActive: { backgroundColor: C.primary },
+  toggleThumb: {
+    width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff',
+    alignSelf: 'flex-start',
+  },
+  toggleThumbActive: { alignSelf: 'flex-end' },
   resetBtn: {
     marginTop: 40, paddingVertical: 14, borderRadius: 12, borderWidth: 1,
-    borderColor: Colors.error, alignItems: 'center',
+    borderColor: C.error, alignItems: 'center',
   },
-  resetBtnText: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: Colors.error },
-  resetBtnConfirm: { backgroundColor: 'rgba(239,83,80,0.15)', borderColor: Colors.error },
-  cancelText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary, textAlign: 'center', marginTop: 12 },
+  resetBtnText: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: C.error },
+  resetBtnConfirm: { backgroundColor: 'rgba(239,83,80,0.15)', borderColor: C.error },
+  cancelText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: C.textSecondary, textAlign: 'center', marginTop: 12 },
 });

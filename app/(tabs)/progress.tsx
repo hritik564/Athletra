@@ -6,12 +6,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
+import { useColors } from '@/contexts/ThemeContext';
 import { useFitness } from '@/contexts/FitnessContext';
 import { useUser } from '@/contexts/UserContext';
 import Svg, { Polyline, Line, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
 
 function WeightChart({ data }: { data: { date: string; weight: number }[] }) {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
+
   if (data.length < 2) {
     return (
       <View style={styles.chartEmpty}>
@@ -65,6 +68,9 @@ function WeightChart({ data }: { data: { date: string; weight: number }[] }) {
 }
 
 function StatCard({ icon, label, value, color, subtitle }: { icon: string; label: string; value: string; color: string; subtitle?: string }) {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
+
   return (
     <View style={styles.statCard}>
       <View style={[styles.statIconBg, { backgroundColor: color + '15' }]}>
@@ -78,6 +84,8 @@ function StatCard({ icon, label, value, color, subtitle }: { icon: string; label
 }
 
 export default function ProgressScreen() {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   const insets = useSafeAreaInsets();
   const { weightHistory, logWeight, streak, totalCaloriesConsumed, totalCaloriesBurned } = useFitness();
   const { profile } = useUser();
@@ -252,46 +260,46 @@ export default function ProgressScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (C: any) => StyleSheet.create({
   container: { flex: 1 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 20 },
-  screenTitle: { fontSize: 28, fontFamily: 'Outfit_700Bold', color: Colors.text },
-  logWeightBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.surface, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
-  logWeightText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: Colors.primary },
+  screenTitle: { fontSize: 28, fontFamily: 'Outfit_700Bold', color: C.text },
+  logWeightBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.surface, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
+  logWeightText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: C.primary },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 20, gap: 12, marginBottom: 24 },
   statCard: {
-    width: '47%', backgroundColor: Colors.surface, borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: Colors.border,
+    width: '47%', backgroundColor: C.surface, borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: C.border,
   },
   statIconBg: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  statValue: { fontSize: 22, fontFamily: 'Outfit_700Bold', color: Colors.text },
-  statLabel: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary, marginTop: 2 },
-  statSub: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: Colors.textMuted, marginTop: 2 },
+  statValue: { fontSize: 22, fontFamily: 'Outfit_700Bold', color: C.text },
+  statLabel: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: C.textSecondary, marginTop: 2 },
+  statSub: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: C.textMuted, marginTop: 2 },
   section: { marginBottom: 24 },
-  sectionTitle: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: Colors.text, paddingHorizontal: 20, marginBottom: 12 },
-  chartCard: { marginHorizontal: 20, backgroundColor: Colors.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: Colors.border },
+  sectionTitle: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: C.text, paddingHorizontal: 20, marginBottom: 12 },
+  chartCard: { marginHorizontal: 20, backgroundColor: C.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: C.border },
   chartContainer: { alignItems: 'center' },
   chartEmpty: { alignItems: 'center', paddingVertical: 30, gap: 8 },
-  chartEmptyText: { fontSize: 14, fontFamily: 'Outfit_400Regular', color: Colors.textMuted },
+  chartEmptyText: { fontSize: 14, fontFamily: 'Outfit_400Regular', color: C.textMuted },
   journeyCard: { marginHorizontal: 20 },
-  journeyContent: { borderRadius: 16, padding: 16, gap: 16, borderWidth: 1, borderColor: Colors.border },
+  journeyContent: { borderRadius: 16, padding: 16, gap: 16, borderWidth: 1, borderColor: C.border },
   journeyRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   journeyDot: { width: 10, height: 10, borderRadius: 5 },
   journeyInfo: {},
-  journeyLabel: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary },
-  journeyValue: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: Colors.text, textTransform: 'capitalize' },
+  journeyLabel: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: C.textSecondary },
+  journeyValue: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: C.text, textTransform: 'capitalize' },
   achievementRow: { flexDirection: 'row', paddingHorizontal: 20, gap: 12 },
   achievementBadge: { alignItems: 'center', gap: 6 },
   achievementIcon: { width: 56, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  achievementLabel: { fontSize: 11, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary },
+  achievementLabel: { fontSize: 11, fontFamily: 'Outfit_500Medium', color: C.textSecondary },
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
-  modalContent: { backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 },
+  modalContent: { backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  modalTitle: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: Colors.text },
+  modalTitle: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: C.text },
   weightInput: {
-    height: 56, backgroundColor: Colors.surfaceLight, borderRadius: 14, paddingHorizontal: 16,
-    color: Colors.text, fontSize: 24, fontFamily: 'Outfit_700Bold', textAlign: 'center',
-    marginBottom: 16, borderWidth: 1, borderColor: Colors.border,
+    height: 56, backgroundColor: C.surfaceLight, borderRadius: 14, paddingHorizontal: 16,
+    color: C.text, fontSize: 24, fontFamily: 'Outfit_700Bold', textAlign: 'center',
+    marginBottom: 16, borderWidth: 1, borderColor: C.border,
   },
   saveBtn: {},
   saveBtnGradient: { height: 50, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },

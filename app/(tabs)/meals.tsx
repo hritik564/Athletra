@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
+import { useColors } from '@/contexts/ThemeContext';
 import { useFitness, Meal } from '@/contexts/FitnessContext';
 import { useUser } from '@/contexts/UserContext';
 import { apiRequest, getApiUrl } from '@/lib/query-client';
@@ -20,6 +20,8 @@ const MEAL_ICONS: Record<string, string> = {
 };
 
 function MealCard({ meal, onRemove }: { meal: Meal; onRemove: () => void }) {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   return (
     <View style={styles.mealCard}>
       <View style={styles.mealCardLeft}>
@@ -45,6 +47,8 @@ function MealCard({ meal, onRemove }: { meal: Meal; onRemove: () => void }) {
 }
 
 export default function MealsScreen() {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   const insets = useSafeAreaInsets();
   const { todayData, addMeal, removeMeal, totalCaloriesConsumed } = useFitness();
   const { profile } = useUser();
@@ -151,7 +155,7 @@ export default function MealsScreen() {
         <Text style={styles.addMealBtnText}>Add {item.type}</Text>
       </Pressable>
     </View>
-  ), [todayData]);
+  ), [todayData, Colors, styles]);
 
   return (
     <View style={[styles.container, { backgroundColor: Colors.background }]}>
@@ -253,48 +257,48 @@ export default function MealsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (C: any) => StyleSheet.create({
   container: { flex: 1 },
   headerArea: { paddingHorizontal: 20, paddingBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  screenTitle: { fontSize: 28, fontFamily: 'Outfit_700Bold', color: Colors.text },
-  remainingBadge: { alignItems: 'center', backgroundColor: Colors.surface, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12 },
-  remainingValue: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: Colors.primary },
-  remainingLabel: { fontSize: 10, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary },
+  screenTitle: { fontSize: 28, fontFamily: 'Outfit_700Bold', color: C.text },
+  remainingBadge: { alignItems: 'center', backgroundColor: C.surface, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12 },
+  remainingValue: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: C.primary },
+  remainingLabel: { fontSize: 10, fontFamily: 'Outfit_400Regular', color: C.textSecondary },
   mealSection: { marginBottom: 20 },
   mealSectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   mealSectionLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  mealSectionTitle: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: Colors.text },
-  mealSectionCal: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary },
+  mealSectionTitle: { fontSize: 16, fontFamily: 'Outfit_600SemiBold', color: C.text },
+  mealSectionCal: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: C.textSecondary },
   mealCard: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: Colors.surface, borderRadius: 14, padding: 14, marginBottom: 8,
-    borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 8,
+    borderWidth: 1, borderColor: C.border,
   },
   mealCardLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  mealTypeIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(27,127,227,0.12)', alignItems: 'center', justifyContent: 'center' },
+  mealTypeIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: C.primaryLight + '1F', alignItems: 'center', justifyContent: 'center' },
   mealInfo: { flex: 1 },
-  mealName: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: Colors.text },
-  mealMacros: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary, marginTop: 2 },
+  mealName: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: C.text },
+  mealMacros: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: C.textSecondary, marginTop: 2 },
   mealCardRight: { alignItems: 'flex-end', gap: 2 },
-  mealCalories: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: Colors.accent },
-  mealCalLabel: { fontSize: 10, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary },
+  mealCalories: { fontSize: 18, fontFamily: 'Outfit_700Bold', color: C.accent },
+  mealCalLabel: { fontSize: 10, fontFamily: 'Outfit_400Regular', color: C.textSecondary },
   addMealBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
-    paddingVertical: 10, borderWidth: 1, borderColor: Colors.primary, borderRadius: 12,
+    paddingVertical: 10, borderWidth: 1, borderColor: C.primary, borderRadius: 12,
     borderStyle: 'dashed',
   },
-  addMealBtnText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: Colors.primary },
+  addMealBtnText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: C.primary },
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
-  modalContent: { backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 },
+  modalContent: { backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  modalTitle: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: Colors.text },
+  modalTitle: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: C.text },
   aiSuggestBtn: { marginBottom: 16 },
   aiSuggestGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10 },
   aiSuggestText: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: '#fff' },
   modalInput: {
-    height: 48, backgroundColor: Colors.surfaceLight, borderRadius: 12, paddingHorizontal: 14,
-    color: Colors.text, fontSize: 15, fontFamily: 'Outfit_500Medium', marginBottom: 10,
-    borderWidth: 1, borderColor: Colors.border,
+    height: 48, backgroundColor: C.surfaceLight, borderRadius: 12, paddingHorizontal: 14,
+    color: C.text, fontSize: 15, fontFamily: 'Outfit_500Medium', marginBottom: 10,
+    borderWidth: 1, borderColor: C.border,
   },
   modalInputRow: { flexDirection: 'row', gap: 10 },
   saveBtn: { marginTop: 8 },

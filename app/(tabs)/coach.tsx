@@ -12,7 +12,7 @@ import { fetch } from 'expo/fetch';
 import { useAudioRecorder, useAudioPlayer, AudioModule, RecordingPresets } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import Colors from '@/constants/colors';
+import { useColors } from '@/contexts/ThemeContext';
 import { useUser } from '@/contexts/UserContext';
 import { useFitness } from '@/contexts/FitnessContext';
 import { getApiUrl } from '@/lib/query-client';
@@ -58,6 +58,7 @@ function generateUniqueId(): string {
 }
 
 function FormattedText({ text, isUser }: { text: string; isUser: boolean }) {
+  const Colors = useColors();
   const textColor = isUser ? '#fff' : Colors.text;
   const mutedColor = isUser ? 'rgba(255,255,255,0.7)' : Colors.textSecondary;
   const accentColor = isUser ? '#fff' : Colors.primary;
@@ -212,6 +213,8 @@ function MessageBubble({
   onSaveMealPlan?: (plan: ParsedMealPlan) => void;
   onSaveWorkoutPlan?: (plan: ParsedWorkoutPlan) => void;
 }) {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   const isUser = message.role === 'user';
   const { displayText, mealPlan, workoutPlan } = isUser
     ? { displayText: message.content, mealPlan: null, workoutPlan: null }
@@ -278,6 +281,8 @@ function MessageBubble({
 }
 
 function TypingIndicator() {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   return (
     <View style={[styles.bubbleRow]}>
       <View style={styles.coachAvatar}>
@@ -291,6 +296,8 @@ function TypingIndicator() {
 }
 
 function RecordingIndicator({ duration }: { duration: number }) {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -325,6 +332,8 @@ const QUICK_PROMPTS = [
 ];
 
 export default function CoachScreen() {
+  const Colors = useColors();
+  const styles = createStyles(Colors);
   const insets = useSafeAreaInsets();
   const { profile } = useUser();
   const { totalCaloriesConsumed, totalCaloriesBurned, macros, todayData, streak, addMeal, addWorkout } = useFitness();
@@ -735,35 +744,35 @@ export default function CoachScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (C: any) => StyleSheet.create({
   container: { flex: 1 },
   headerBar: {
     paddingHorizontal: 20, paddingBottom: 12, flexDirection: 'row',
     justifyContent: 'space-between', alignItems: 'center',
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
+    borderBottomWidth: 1, borderBottomColor: C.border,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerAvatar: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 17, fontFamily: 'Outfit_700Bold', color: Colors.text },
-  headerSubtitle: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary },
+  headerTitle: { fontSize: 17, fontFamily: 'Outfit_700Bold', color: C.text },
+  headerSubtitle: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: C.textSecondary },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
   emptyIcon: { width: 80, height: 80, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-  emptyTitle: { fontSize: 24, fontFamily: 'Outfit_700Bold', color: Colors.text, marginBottom: 8 },
-  emptySubtitle: { fontSize: 15, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: 28 },
+  emptyTitle: { fontSize: 24, fontFamily: 'Outfit_700Bold', color: C.text, marginBottom: 8 },
+  emptySubtitle: { fontSize: 15, fontFamily: 'Outfit_400Regular', color: C.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: 28 },
   quickPrompts: { width: '100%', gap: 8 },
   quickPrompt: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingVertical: 14, paddingHorizontal: 16, backgroundColor: Colors.surface,
-    borderRadius: 14, borderWidth: 1, borderColor: Colors.border,
+    paddingVertical: 14, paddingHorizontal: 16, backgroundColor: C.surface,
+    borderRadius: 14, borderWidth: 1, borderColor: C.border,
   },
-  quickPromptText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: Colors.text },
+  quickPromptText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: C.text },
   bubbleRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: 4 },
   bubbleRowUser: { flexDirection: 'row-reverse' },
-  coachAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
+  coachAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   bubble: { maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
-  bubbleUser: { backgroundColor: Colors.accent, borderBottomRightRadius: 4 },
-  bubbleAssistant: { backgroundColor: Colors.surface, borderBottomLeftRadius: 4 },
-  bubbleText: { fontSize: 15, fontFamily: 'Outfit_400Regular', color: Colors.text, lineHeight: 21 },
+  bubbleUser: { backgroundColor: C.accent, borderBottomRightRadius: 4 },
+  bubbleAssistant: { backgroundColor: C.surface, borderBottomLeftRadius: 4 },
+  bubbleText: { fontSize: 15, fontFamily: 'Outfit_400Regular', color: C.text, lineHeight: 21 },
   bubbleTextUser: { color: '#fff' },
   typingBubble: { paddingHorizontal: 20, paddingVertical: 14 },
   voiceLabel: {
@@ -773,10 +782,10 @@ const styles = StyleSheet.create({
   voiceLabelText: { fontSize: 11, fontFamily: 'Outfit_500Medium', color: '#fff' },
   playBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8,
-    paddingVertical: 6, paddingHorizontal: 10, backgroundColor: 'rgba(27,127,227,0.12)',
+    paddingVertical: 6, paddingHorizontal: 10, backgroundColor: C.primaryLight + '1F',
     borderRadius: 12, alignSelf: 'flex-start',
   },
-  playBtnText: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: Colors.primary },
+  playBtnText: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: C.primary },
   savePlanBtn: { marginTop: 10, borderRadius: 10, overflow: 'hidden' },
   savePlanGradient: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -786,30 +795,30 @@ const styles = StyleSheet.create({
   savedBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10,
     paddingVertical: 8, paddingHorizontal: 12,
-    backgroundColor: 'rgba(76,175,80,0.1)', borderRadius: 10,
+    backgroundColor: C.success + '1A', borderRadius: 10,
   },
-  savedBadgeText: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: Colors.success },
+  savedBadgeText: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: C.success },
   recordingBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
-    paddingVertical: 10, backgroundColor: 'rgba(27,127,227,0.08)',
-    borderTopWidth: 1, borderTopColor: 'rgba(27,127,227,0.2)',
+    paddingVertical: 10, backgroundColor: C.primary + '14',
+    borderTopWidth: 1, borderTopColor: C.primary + '33',
   },
-  recordingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.error },
-  recordingTime: { fontSize: 16, fontFamily: 'Outfit_700Bold', color: Colors.primary },
-  recordingLabel: { fontSize: 14, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary },
-  inputArea: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.border },
+  recordingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.error },
+  recordingTime: { fontSize: 16, fontFamily: 'Outfit_700Bold', color: C.primary },
+  recordingLabel: { fontSize: 14, fontFamily: 'Outfit_400Regular', color: C.textSecondary },
+  inputArea: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: C.background, borderTopWidth: 1, borderTopColor: C.border },
   inputContainer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   micBtn: {
-    width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(27,127,227,0.12)',
+    width: 42, height: 42, borderRadius: 21, backgroundColor: C.primary + '1F',
     alignItems: 'center', justifyContent: 'center',
   },
   micBtnDisabled: { opacity: 0.4 },
   input: {
-    flex: 1, minHeight: 42, maxHeight: 100, backgroundColor: Colors.surface,
-    borderRadius: 21, paddingHorizontal: 16, paddingVertical: 10, color: Colors.text,
-    fontSize: 15, fontFamily: 'Outfit_400Regular', borderWidth: 1, borderColor: Colors.border,
+    flex: 1, minHeight: 42, maxHeight: 100, backgroundColor: C.surface,
+    borderRadius: 21, paddingHorizontal: 16, paddingVertical: 10, color: C.text,
+    fontSize: 15, fontFamily: 'Outfit_400Regular', borderWidth: 1, borderColor: C.border,
   },
-  sendBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
+  sendBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
   sendBtnDisabled: { opacity: 0.4 },
   stopRecordingBtn: { flex: 1 },
   stopRecordingGradient: {

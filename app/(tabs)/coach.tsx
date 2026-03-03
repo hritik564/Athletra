@@ -328,7 +328,7 @@ const QUICK_PROMPTS = [
   "Create a meal plan for today",
   "Design a workout for me",
   "How am I doing today?",
-  "Help me stay motivated",
+  "Analyze my technique",
 ];
 
 export default function CoachScreen() {
@@ -553,6 +553,11 @@ export default function CoachScreen() {
     const messageText = text || inputText.trim();
     if (!messageText || isStreaming) return;
 
+    if (messageText.toLowerCase().includes('analyze my technique') || messageText.toLowerCase().includes('analyze my form')) {
+      router.push('/analyze');
+      return;
+    }
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setInputText('');
 
@@ -702,6 +707,13 @@ export default function CoachScreen() {
         <View style={styles.inputContainer}>
           {!isRecording ? (
             <>
+              <Pressable
+                onPress={() => router.push('/analyze')}
+                disabled={isBusy}
+                style={[styles.micBtn, isBusy && styles.micBtnDisabled]}
+              >
+                <Ionicons name="camera" size={20} color={isBusy ? Colors.textMuted : Colors.accent} />
+              </Pressable>
               <Pressable
                 onPress={startRecording}
                 disabled={isBusy}

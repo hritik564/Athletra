@@ -268,6 +268,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/coach/analyze-technique", express.json({ limit: "50mb" }), async (req: Request, res: Response) => {
+    try {
+      const { images, userProfile, sport, description } = req.body;
+
+      if (!images || !Array.isArray(images) || images.length === 0) {
+        return res.status(400).json({ error: "At least one image is required" });
+      }
+
+      const profileContext = buildProfileContext(userProfile);
+      const sportContext = sport || userProfile?.sport || 'general athletics';
+
+      const systemPrompt = `You are VitalCoach's elite technique analyst. You specialize in sports biomechanics and movement analysis across all sports.
+
+Your analysis approach:
+- Examine body positioning, alignment, and form in each image
+- If multiple frames are provided, analyze movement patterns and transitions
+- Provide sport-specific feedback based on the athlete's sport: ${sportContext}
+- Be direct and actionable — athletes want to know exactly what to fix
+- Rate key aspects on a scale (e.g., Form: 8/10)
+- Always include what they're doing WELL before corrections
+
+Format your response as:
+**Sport**: ${sportContext}
+
+**What You're Doing Well**
+- [specific positives with detail]
+
+**Areas to Improve**
+- [specific corrections with how-to instructions]
+
+**Key Metrics**
+- Form: X/10
+- Balance: X/10
+- Technique: X/10
+
+**Drill to Practice**
+- [one specific drill to address the biggest improvement area]
+
+${profileContext}`;
+
+      const imageContent = images.slice(0, 6).map((img: string) => ({
+        type: "image_url" as const,
+        image_url: {
+          url: img.startsWith('data:') ? img : `data:image/jpeg;base64,${img}`,
+          detail: "high" as const,
+        },
+      }));
+
+      const userContent: any[] = [
+        ...imageContent,
+        {
+          type: "text" as const,
+          text: description
+            ? `Analyze my ${sportContext} technique. Additional context: ${description}`
+            : `Analyze my ${sportContext} technique in these images. Provide detailed, actionable feedback.`,
+        },
+      ];
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+
+      const stream = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+        stream: true,
+        max_completion_tokens: 2048,
+      });
+
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || "";
+        if (content) {
+          res.write(`data: ${JSON.stringify({ content })}\n\n`);
+        }
+      }
+
+      res.write("data: [DONE]\n\n");
+      res.end();
+    } catch (error) {
+      console.error("Technique analysis error:", error);
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ error: "Failed to analyze technique" })}\n\n`);
+        res.end();
+      } else {
+        res.status(500).json({ error: "Failed to analyze technique" });
+      }
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { fetch } from 'expo/fetch';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/contexts/ThemeContext';
@@ -182,19 +183,25 @@ export default function AnalyzeScreen() {
     setMode('review');
 
     try {
-      const response = await globalThis.fetch(uri);
-      const blob = await response.blob();
-      const reader = new FileReader();
+      let base64Video: string;
 
-      const base64Video = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const result = reader.result as string;
-          const base64 = result.split(',')[1];
-          resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
+      if (Platform.OS === 'web') {
+        const response = await globalThis.fetch(uri);
+        const blob = await response.blob();
+        const reader = new FileReader();
+        base64Video = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(',')[1]);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } else {
+        base64Video = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      }
 
       const baseUrl = getApiUrl();
       const extractRes = await globalThis.fetch(`${baseUrl}api/coach/extract-frames`, {
@@ -203,7 +210,10 @@ export default function AnalyzeScreen() {
         body: JSON.stringify({ video: base64Video }),
       });
 
-      if (!extractRes.ok) throw new Error('Frame extraction failed');
+      if (!extractRes.ok) {
+        const errorData = await extractRes.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Frame extraction failed');
+      }
 
       const { frames } = await extractRes.json();
       if (frames && frames.length > 0) {
@@ -212,7 +222,6 @@ export default function AnalyzeScreen() {
       }
     } catch (e) {
       console.error('Frame extraction error:', e);
-      setSelectedImages(prev => prev);
     } finally {
       setIsExtractingFrames(false);
     }

@@ -42,6 +42,7 @@ All data stored in UserProfile via AsyncStorage and passed to AI coach for perso
   - Voice coaching (`/api/coach/voice` - transcribe + AI response + TTS audio)
   - Audio transcription (`/api/coach/transcribe` - speech-to-text)
   - Technique analysis (`/api/coach/analyze-technique` - GPT-4o vision, streaming SSE, accepts up to 6 images with sport context)
+  - Video frame extraction (`/api/coach/extract-frames` - ffmpeg extracts 6 evenly-spaced key frames from uploaded video)
   - Meal analysis from photos/descriptions
   - Workout plan generation
 - **Static Serving**: In production, serves Expo web build from `dist/` directory. In dev, proxies to Expo's Metro bundler

@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Platform, ScrollView,
-  Image, TextInput, Dimensions, ActivityIndicator, Alert,
+  Image, TextInput, Dimensions, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -83,13 +83,17 @@ export default function AnalyzeScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<AnalyzeMode>('select');
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [videoUri, setVideoUri] = useState<string | null>(null);
+  const [isExtractingFrames, setIsExtractingFrames] = useState(false);
   const [description, setDescription] = useState('');
   const [analysisResult, setAnalysisResult] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [facing, setFacing] = useState<'front' | 'back'>('back');
+  const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const cameraRef = useRef<CameraView>(null);
 
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
+  const bottomInset = insets.bottom || (Platform.OS === 'web' ? 34 : 0);
 
   const takePhoto = async () => {
     if (!cameraRef.current) return;
@@ -106,6 +110,29 @@ export default function AnalyzeScreen() {
     } catch (e) {
       console.error('Failed to take photo:', e);
     }
+  };
+
+  const startVideoRecording = async () => {
+    if (!cameraRef.current || Platform.OS === 'web') return;
+    try {
+      setIsRecordingVideo(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      const video = await cameraRef.current.recordAsync({ maxDuration: 15 });
+      if (video?.uri) {
+        setVideoUri(video.uri);
+        await extractFramesFromVideo(video.uri);
+      }
+    } catch (e) {
+      console.error('Failed to record video:', e);
+      setIsRecordingVideo(false);
+    }
+  };
+
+  const stopVideoRecording = () => {
+    if (cameraRef.current) {
+      cameraRef.current.stopRecording();
+    }
+    setIsRecordingVideo(false);
   };
 
   const pickFromGallery = async () => {
@@ -131,10 +158,72 @@ export default function AnalyzeScreen() {
     }
   };
 
+  const pickVideoFromGallery = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        quality: 0.5,
+        videoMaxDuration: 30,
+      });
+
+      if (!result.canceled && result.assets.length > 0) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        const asset = result.assets[0];
+        setVideoUri(asset.uri);
+        await extractFramesFromVideo(asset.uri);
+      }
+    } catch (e) {
+      console.error('Failed to pick video:', e);
+    }
+  };
+
+  const extractFramesFromVideo = async (uri: string) => {
+    setIsExtractingFrames(true);
+    setMode('review');
+
+    try {
+      const response = await globalThis.fetch(uri);
+      const blob = await response.blob();
+      const reader = new FileReader();
+
+      const base64Video = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64 = result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      const baseUrl = getApiUrl();
+      const extractRes = await globalThis.fetch(`${baseUrl}api/coach/extract-frames`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video: base64Video }),
+      });
+
+      if (!extractRes.ok) throw new Error('Frame extraction failed');
+
+      const { frames } = await extractRes.json();
+      if (frames && frames.length > 0) {
+        const frameImages = frames.map((f: string) => `data:image/jpeg;base64,${f}`);
+        setSelectedImages(prev => [...prev, ...frameImages].slice(0, 6));
+      }
+    } catch (e) {
+      console.error('Frame extraction error:', e);
+      setSelectedImages(prev => prev);
+    } finally {
+      setIsExtractingFrames(false);
+    }
+  };
+
   const removeImage = (index: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSelectedImages(prev => prev.filter((_, i) => i !== index));
-    if (selectedImages.length <= 1) {
+    const newImages = selectedImages.filter((_, i) => i !== index);
+    setSelectedImages(newImages);
+    if (newImages.length === 0) {
+      setVideoUri(null);
       setMode('select');
     }
   };
@@ -156,7 +245,9 @@ export default function AnalyzeScreen() {
           images: selectedImages,
           userProfile: profile,
           sport: profile.sport || '',
-          description,
+          description: videoUri
+            ? `${description ? description + '. ' : ''}These frames were extracted from a video recording of my technique.`
+            : description,
         }),
       });
 
@@ -204,6 +295,7 @@ export default function AnalyzeScreen() {
 
   const resetAll = () => {
     setSelectedImages([]);
+    setVideoUri(null);
     setDescription('');
     setAnalysisResult('');
     setMode('select');
@@ -220,7 +312,7 @@ export default function AnalyzeScreen() {
 
     if (!permission.granted) {
       return (
-        <View style={styles.centered}>
+        <View style={[styles.centered, { backgroundColor: Colors.background }]}>
           <Ionicons name="camera-outline" size={48} color={Colors.textMuted} />
           <Text style={styles.permTitle}>Camera Access Needed</Text>
           <Text style={styles.permSubtitle}>To capture your form and technique for AI analysis</Text>
@@ -252,10 +344,11 @@ export default function AnalyzeScreen() {
           ref={cameraRef}
           style={{ flex: 1 }}
           facing={facing}
+          mode={isRecordingVideo ? 'video' : 'picture'}
         >
           <View style={[styles.cameraOverlay, { paddingTop: (insets.top || webTopInset) + 8 }]}>
             <View style={styles.cameraTopBar}>
-              <Pressable style={styles.cameraBtn} onPress={() => setMode('select')}>
+              <Pressable style={styles.cameraBtn} onPress={() => { if (isRecordingVideo) stopVideoRecording(); setMode('select'); }}>
                 <Ionicons name="close" size={24} color="#fff" />
               </Pressable>
               <Pressable style={styles.cameraBtn} onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}>
@@ -264,21 +357,42 @@ export default function AnalyzeScreen() {
             </View>
           </View>
 
-          <View style={[styles.cameraBottomBar, { paddingBottom: (insets.bottom || (Platform.OS === 'web' ? 34 : 0)) + 16 }]}>
-            {selectedImages.length > 0 && (
+          <View style={[styles.cameraBottomBar, { paddingBottom: bottomInset + 16 }]}>
+            {isRecordingVideo && (
+              <View style={styles.recordingBadge}>
+                <View style={styles.recordingDot} />
+                <Text style={styles.recordingBadgeText}>Recording...</Text>
+              </View>
+            )}
+            {selectedImages.length > 0 && !isRecordingVideo && (
               <View style={styles.capturedCount}>
                 <Text style={styles.capturedCountText}>{selectedImages.length} captured</Text>
               </View>
             )}
-            <Pressable style={styles.shutterBtn} onPress={takePhoto}>
-              <View style={styles.shutterInner} />
-            </Pressable>
-            {selectedImages.length > 0 && (
-              <Pressable style={styles.reviewBtn} onPress={() => setMode('review')}>
-                <Text style={styles.reviewBtnText}>Review</Text>
-                <Ionicons name="arrow-forward" size={16} color="#fff" />
-              </Pressable>
-            )}
+
+            <View style={styles.cameraControls}>
+              {Platform.OS !== 'web' && !isRecordingVideo && (
+                <Pressable style={styles.cameraSecondaryBtn} onPress={startVideoRecording}>
+                  <Ionicons name="videocam" size={22} color="#fff" />
+                </Pressable>
+              )}
+
+              {isRecordingVideo ? (
+                <Pressable style={styles.stopRecBtn} onPress={stopVideoRecording}>
+                  <View style={styles.stopRecInner} />
+                </Pressable>
+              ) : (
+                <Pressable style={styles.shutterBtn} onPress={takePhoto}>
+                  <View style={styles.shutterInner} />
+                </Pressable>
+              )}
+
+              {selectedImages.length > 0 && !isRecordingVideo && (
+                <Pressable style={styles.cameraSecondaryBtn} onPress={() => setMode('review')}>
+                  <Ionicons name="arrow-forward" size={22} color="#fff" />
+                </Pressable>
+              )}
+            </View>
           </View>
         </CameraView>
       </View>
@@ -315,7 +429,7 @@ export default function AnalyzeScreen() {
               </LinearGradient>
               <Text style={styles.heroTitle}>Capture Your Form</Text>
               <Text style={styles.heroSubtitle}>
-                Take photos or upload images of your technique. Our AI will analyze your form and provide sport-specific feedback.
+                Take photos, record video, or upload from your gallery. Our AI will analyze your form and provide sport-specific feedback.
               </Text>
             </View>
 
@@ -325,7 +439,7 @@ export default function AnalyzeScreen() {
                   <View style={styles.mediaOptionIcon}>
                     <Ionicons name="camera" size={28} color={Colors.primary} />
                   </View>
-                  <Text style={styles.mediaOptionTitle}>Take Photo</Text>
+                  <Text style={styles.mediaOptionTitle}>Take Photo or Record Video</Text>
                   <Text style={styles.mediaOptionDesc}>Capture your form in real-time</Text>
                 </LinearGradient>
               </Pressable>
@@ -335,8 +449,18 @@ export default function AnalyzeScreen() {
                   <View style={[styles.mediaOptionIcon, { backgroundColor: Colors.accent + '1F' }]}>
                     <Ionicons name="images" size={28} color={Colors.accent} />
                   </View>
-                  <Text style={styles.mediaOptionTitle}>Upload from Gallery</Text>
-                  <Text style={styles.mediaOptionDesc}>Select up to 6 images</Text>
+                  <Text style={styles.mediaOptionTitle}>Upload Photos</Text>
+                  <Text style={styles.mediaOptionDesc}>Select up to 6 images from gallery</Text>
+                </LinearGradient>
+              </Pressable>
+
+              <Pressable style={styles.mediaOption} onPress={pickVideoFromGallery}>
+                <LinearGradient colors={[Colors.success + '14', Colors.success + '08']} style={styles.mediaOptionGradient}>
+                  <View style={[styles.mediaOptionIcon, { backgroundColor: Colors.success + '1F' }]}>
+                    <Ionicons name="film" size={28} color={Colors.success} />
+                  </View>
+                  <Text style={styles.mediaOptionTitle}>Upload Video</Text>
+                  <Text style={styles.mediaOptionDesc}>We'll extract key frames for analysis</Text>
                 </LinearGradient>
               </Pressable>
             </View>
@@ -356,8 +480,8 @@ export default function AnalyzeScreen() {
                 <Text style={styles.tipText}>Multiple angles give richer feedback</Text>
               </View>
               <View style={styles.tipRow}>
-                <Ionicons name="film" size={16} color={Colors.success} />
-                <Text style={styles.tipText}>For video, we'll extract key frames</Text>
+                <Ionicons name="videocam" size={16} color={Colors.success} />
+                <Text style={styles.tipText}>Videos up to 30s — we extract 6 key frames</Text>
               </View>
             </View>
           </>
@@ -365,7 +489,16 @@ export default function AnalyzeScreen() {
 
         {mode === 'review' && (
           <>
-            <Text style={styles.sectionTitle}>Selected Images ({selectedImages.length}/6)</Text>
+            {isExtractingFrames && (
+              <View style={styles.extractingBar}>
+                <ActivityIndicator size="small" color={Colors.accent} />
+                <Text style={styles.extractingText}>Extracting key frames from video...</Text>
+              </View>
+            )}
+
+            <Text style={styles.sectionTitle}>
+              {videoUri ? 'Extracted Frames' : 'Selected Images'} ({selectedImages.length}/6)
+            </Text>
             <View style={styles.imageGrid}>
               {selectedImages.map((img, i) => (
                 <View key={i} style={styles.imageThumb}>
@@ -373,15 +506,20 @@ export default function AnalyzeScreen() {
                   <Pressable style={styles.removeImageBtn} onPress={() => removeImage(i)}>
                     <Ionicons name="close-circle" size={22} color={Colors.error} />
                   </Pressable>
+                  {videoUri && (
+                    <View style={styles.frameBadge}>
+                      <Text style={styles.frameBadgeText}>F{i + 1}</Text>
+                    </View>
+                  )}
                 </View>
               ))}
-              {selectedImages.length < 6 && (
+              {!videoUri && selectedImages.length < 6 && (
                 <Pressable style={styles.addMoreBtn} onPress={() => setMode('camera')}>
                   <Ionicons name="camera-outline" size={24} color={Colors.textMuted} />
                   <Text style={styles.addMoreText}>Add</Text>
                 </Pressable>
               )}
-              {selectedImages.length < 6 && (
+              {!videoUri && selectedImages.length < 6 && (
                 <Pressable style={styles.addMoreBtn} onPress={pickFromGallery}>
                   <Ionicons name="images-outline" size={24} color={Colors.textMuted} />
                   <Text style={styles.addMoreText}>Upload</Text>
@@ -437,8 +575,8 @@ export default function AnalyzeScreen() {
         )}
       </ScrollView>
 
-      {mode === 'review' && selectedImages.length > 0 && (
-        <View style={[styles.bottomBar, { paddingBottom: (insets.bottom || (Platform.OS === 'web' ? 34 : 0)) + 16 }]}>
+      {mode === 'review' && selectedImages.length > 0 && !isExtractingFrames && (
+        <View style={[styles.bottomBar, { paddingBottom: bottomInset + 16 }]}>
           <Pressable style={styles.resetBtn} onPress={resetAll}>
             <Ionicons name="refresh" size={20} color={Colors.textSecondary} />
           </Pressable>
@@ -452,7 +590,7 @@ export default function AnalyzeScreen() {
       )}
 
       {mode === 'result' && !isStreaming && (
-        <View style={[styles.bottomBar, { paddingBottom: (insets.bottom || (Platform.OS === 'web' ? 34 : 0)) + 16 }]}>
+        <View style={[styles.bottomBar, { paddingBottom: bottomInset + 16 }]}>
           <Pressable style={styles.analyzeBtn} onPress={resetAll}>
             <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.analyzeBtnGradient}>
               <Ionicons name="camera" size={18} color="#fff" />
@@ -505,6 +643,11 @@ const createStyles = (C: any) => StyleSheet.create({
   },
   thumbImage: { width: '100%', height: '100%' },
   removeImageBtn: { position: 'absolute', top: 4, right: 4 },
+  frameBadge: {
+    position: 'absolute', bottom: 4, left: 4,
+    backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+  },
+  frameBadgeText: { fontSize: 10, fontFamily: 'Outfit_600SemiBold', color: '#fff' },
   addMoreBtn: {
     width: (width - 70) / 3, height: (width - 70) / 3, borderRadius: 12,
     borderWidth: 1.5, borderColor: C.border, borderStyle: 'dashed',
@@ -523,6 +666,11 @@ const createStyles = (C: any) => StyleSheet.create({
     backgroundColor: C.accent + '14', borderRadius: 10,
   },
   sportBadgeText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: C.accent },
+  extractingBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 16,
+    backgroundColor: C.accent + '12', borderRadius: 12, marginBottom: 16,
+  },
+  extractingText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: C.accent },
   selectedPreview: { marginBottom: 16 },
   previewThumb: { width: 80, height: 80, borderRadius: 10, borderWidth: 1, borderColor: C.border },
   analyzingBar: {
@@ -567,15 +715,33 @@ const createStyles = (C: any) => StyleSheet.create({
   cameraBottomBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center', gap: 12,
   },
+  cameraControls: {
+    flexDirection: 'row', alignItems: 'center', gap: 24,
+  },
+  cameraSecondaryBtn: {
+    width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center', justifyContent: 'center',
+  },
   capturedCount: {
     backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
   },
   capturedCountText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: '#fff' },
+  recordingBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(231,76,60,0.8)', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
+  },
+  recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' },
+  recordingBadgeText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: '#fff' },
   shutterBtn: {
     width: 72, height: 72, borderRadius: 36, borderWidth: 4, borderColor: '#fff',
     alignItems: 'center', justifyContent: 'center',
   },
   shutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#fff' },
+  stopRecBtn: {
+    width: 72, height: 72, borderRadius: 36, borderWidth: 4, borderColor: '#E74C3C',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  stopRecInner: { width: 30, height: 30, borderRadius: 4, backgroundColor: '#E74C3C' },
   reviewBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20,

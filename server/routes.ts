@@ -268,6 +268,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/coach/extract-frames", express.json({ limit: "50mb" }), async (req: Request, res: Response) => {
+    try {
+      const { video } = req.body;
+      if (!video) {
+        return res.status(400).json({ error: "Video data required" });
+      }
+
+      const { execSync } = await import("child_process");
+      const fs = await import("fs");
+      const path = await import("path");
+      const os = await import("os");
+
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vitalcoach-'));
+      const videoPath = path.join(tmpDir, 'input.mp4');
+
+      const videoBuffer = Buffer.from(video, "base64");
+      fs.writeFileSync(videoPath, videoBuffer);
+
+      const frameCount = 6;
+      try {
+        const durationOutput = execSync(
+          `ffprobe -v error -show_entries format=duration -of csv=p=0 "${videoPath}"`,
+          { encoding: 'utf8', timeout: 10000 }
+        ).trim();
+        const duration = parseFloat(durationOutput) || 10;
+
+        const interval = Math.max(duration / (frameCount + 1), 0.5);
+
+        for (let i = 1; i <= frameCount; i++) {
+          const timestamp = interval * i;
+          const outputPath = path.join(tmpDir, `frame_${i}.jpg`);
+          try {
+            execSync(
+              `ffmpeg -ss ${timestamp.toFixed(2)} -i "${videoPath}" -vframes 1 -q:v 3 -vf "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease" "${outputPath}" -y`,
+              { timeout: 15000, stdio: 'pipe' }
+            );
+          } catch {}
+        }
+
+        const frames: string[] = [];
+        for (let i = 1; i <= frameCount; i++) {
+          const framePath = path.join(tmpDir, `frame_${i}.jpg`);
+          if (fs.existsSync(framePath)) {
+            const frameBuffer = fs.readFileSync(framePath);
+            frames.push(frameBuffer.toString('base64'));
+          }
+        }
+
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {}
+
+        if (frames.length === 0) {
+          return res.status(400).json({ error: "Could not extract frames from video" });
+        }
+
+        res.json({ frames, count: frames.length });
+      } catch (ffmpegError) {
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {}
+        console.error("FFmpeg error:", ffmpegError);
+        return res.status(500).json({ error: "Failed to process video" });
+      }
+    } catch (error) {
+      console.error("Frame extraction error:", error);
+      res.status(500).json({ error: "Failed to extract frames" });
+    }
+  });
+
   app.post("/api/coach/analyze-technique", express.json({ limit: "50mb" }), async (req: Request, res: Response) => {
     try {
       const { images, userProfile, sport, description } = req.body;

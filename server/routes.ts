@@ -296,6 +296,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/coach/tts", express.json({ limit: "2mb" }), async (req: Request, res: Response) => {
+    try {
+      const { text } = req.body;
+      if (!text || typeof text !== "string") {
+        return res.status(400).json({ error: "Text required" });
+      }
+
+      const cleanText = text
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/#{1,3}\s+/g, "")
+        .replace(/[-•]\s+/g, "")
+        .replace(/<<<[A-Z_]+>>>/g, "")
+        .replace(/```[\s\S]*?```/g, "")
+        .trim();
+
+      const truncated = cleanText.length > 3000 ? cleanText.slice(0, 3000) + "..." : cleanText;
+
+      const audioResponse = await openai.chat.completions.create({
+        model: "gpt-audio",
+        modalities: ["text", "audio"],
+        audio: { voice: "nova", format: "wav" },
+        messages: [
+          { role: "system", content: "You are a text-to-speech assistant. Read the following coaching feedback aloud with natural, warm, encouraging intonation. Read it naturally as spoken language — skip formatting artifacts." },
+          { role: "user", content: `Read this aloud naturally: ${truncated}` },
+        ],
+      });
+
+      const audioData = (audioResponse.choices[0]?.message as any)?.audio?.data ?? "";
+
+      res.json({ audio: audioData });
+    } catch (error) {
+      console.error("TTS error:", error);
+      res.status(500).json({ error: "Failed to generate speech" });
+    }
+  });
+
   app.post("/api/coach/suggest-meal", async (req: Request, res: Response) => {
     try {
       const { currentCalories, targetCalories, mealType, preferences } = req.body;

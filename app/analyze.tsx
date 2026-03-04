@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Platform, ScrollView,
   Image, TextInput, Dimensions, ActivityIndicator, Modal,
@@ -11,6 +11,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { fetch } from 'expo/fetch';
 import * as Haptics from 'expo-haptics';
+import { useAudioPlayer } from 'expo-audio';
 import { useColors } from '@/contexts/ThemeContext';
 import { useUser } from '@/contexts/UserContext';
 import { getApiUrl } from '@/lib/query-client';
@@ -98,7 +99,39 @@ export default function AnalyzeScreen() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [facing, setFacing] = useState<'front' | 'back'>('back');
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
+  const [audioUri, setAudioUri] = useState<string | null>(null);
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const cameraRef = useRef<CameraView>(null);
+  const player = useAudioPlayer(audioUri);
+
+  useEffect(() => {
+    if (player && audioUri) {
+      try {
+        player.play();
+        setIsPlayingAudio(true);
+      } catch (e) {
+        console.error('Audio play error:', e);
+        setIsPlayingAudio(false);
+      }
+    }
+  }, [audioUri]);
+
+  useEffect(() => {
+    if (!player) return;
+    const playSub = player.addListener('playingChange', (event: { isPlaying: boolean }) => {
+      setIsPlayingAudio(event.isPlaying);
+    });
+    const statusSub = player.addListener('playbackStatusUpdate', (status: any) => {
+      if (status?.didJustFinish) {
+        setIsPlayingAudio(false);
+      }
+    });
+    return () => {
+      playSub.remove();
+      statusSub.remove();
+    };
+  }, [player]);
 
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
   const bottomInset = insets.bottom || (Platform.OS === 'web' ? 34 : 0);
@@ -291,6 +324,15 @@ export default function AnalyzeScreen() {
   const startAnalysis = async () => {
     if (selectedImages.length === 0) return;
 
+    if (player) {
+      try { player.pause(); } catch {}
+    }
+    if (audioUri && Platform.OS === 'web' && audioUri.startsWith('blob:')) {
+      URL.revokeObjectURL(audioUri);
+    }
+    setAudioUri(null);
+    setIsPlayingAudio(false);
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setMode('analyzing');
     setAnalysisResult('');
@@ -366,6 +408,7 @@ export default function AnalyzeScreen() {
       }
 
       setMode('result');
+      generateSpeech(fullContent);
     } catch (error) {
       console.error('Analysis error:', error);
       setAnalysisResult('Failed to analyze. Please check your connection and try again.');
@@ -376,7 +419,60 @@ export default function AnalyzeScreen() {
     }
   };
 
+  const base64ToBlobUri = (base64: string, mimeType: string): string => {
+    const byteChars = atob(base64);
+    const byteNums = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+      byteNums[i] = byteChars.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNums);
+    const blob = new Blob([byteArray], { type: mimeType });
+    return URL.createObjectURL(blob);
+  };
+
+  const generateSpeech = async (text: string) => {
+    if (!text || text.length < 20) return;
+    setIsGeneratingAudio(true);
+    try {
+      const baseUrl = getApiUrl();
+      const response = await globalThis.fetch(`${baseUrl}api/coach/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) throw new Error('TTS failed');
+      const data = await response.json();
+      if (data.audio) {
+        if (Platform.OS === 'web') {
+          const blobUri = base64ToBlobUri(data.audio, 'audio/wav');
+          setAudioUri(blobUri);
+        } else {
+          setAudioUri(`data:audio/wav;base64,${data.audio}`);
+        }
+      }
+    } catch (e) {
+      console.error('TTS error:', e);
+    } finally {
+      setIsGeneratingAudio(false);
+    }
+  };
+
+  const toggleAudioPlayback = () => {
+    if (!player) return;
+    if (isPlayingAudio) {
+      player.pause();
+    } else {
+      player.play();
+    }
+  };
+
   const resetAll = () => {
+    if (player) {
+      try { player.pause(); } catch {}
+    }
+    if (audioUri && Platform.OS === 'web' && audioUri.startsWith('blob:')) {
+      URL.revokeObjectURL(audioUri);
+    }
     setSelectedImages([]);
     setVideoUri(null);
     setDescription('');
@@ -387,6 +483,9 @@ export default function AnalyzeScreen() {
     setPoseMessage('');
     setShowAnnotated(false);
     setPreviewImage(null);
+    setAudioUri(null);
+    setIsPlayingAudio(false);
+    setIsGeneratingAudio(false);
     setMode('select');
   };
 
@@ -764,6 +863,34 @@ export default function AnalyzeScreen() {
 
             {analysisResult ? (
               <View style={styles.resultCard}>
+                <View style={styles.resultHeader}>
+                  {isGeneratingAudio ? (
+                    <View style={styles.audioGeneratingBar}>
+                      <ActivityIndicator size="small" color={Colors.primary} />
+                      <Text style={styles.audioGeneratingText}>Generating voice...</Text>
+                    </View>
+                  ) : audioUri ? (
+                    <Pressable style={styles.audioPlayBar} onPress={toggleAudioPlayback}>
+                      <Ionicons
+                        name={isPlayingAudio ? 'pause-circle' : 'play-circle'}
+                        size={28}
+                        color={Colors.primary}
+                      />
+                      <Text style={styles.audioPlayText}>
+                        {isPlayingAudio ? 'Playing feedback...' : 'Listen to feedback'}
+                      </Text>
+                      <View style={styles.audioWaves}>
+                        {isPlayingAudio && [0, 1, 2, 3].map(i => (
+                          <View key={i} style={[styles.audioWaveBar, {
+                            height: 8 + (i % 3) * 4,
+                            backgroundColor: Colors.primary,
+                            opacity: 0.4 + (i % 3) * 0.2,
+                          }]} />
+                        ))}
+                      </View>
+                    </Pressable>
+                  ) : null}
+                </View>
                 <FormattedText text={analysisResult} Colors={Colors} />
               </View>
             ) : null}
@@ -961,6 +1088,19 @@ const createStyles = (C: any) => StyleSheet.create({
     backgroundColor: C.surface, borderRadius: 16, padding: 20,
     borderWidth: 1, borderColor: C.border,
   },
+  resultHeader: { marginBottom: 4 },
+  audioGeneratingBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 14,
+    backgroundColor: C.primary + '10', borderRadius: 12, marginBottom: 12,
+  },
+  audioGeneratingText: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: C.primary },
+  audioPlayBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 14,
+    backgroundColor: C.primary + '10', borderRadius: 12, marginBottom: 12,
+  },
+  audioPlayText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: C.primary, flex: 1 },
+  audioWaves: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  audioWaveBar: { width: 3, borderRadius: 2 },
   bottomBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     paddingHorizontal: 20, paddingTop: 12,

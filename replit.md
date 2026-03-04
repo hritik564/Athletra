@@ -44,6 +44,7 @@ All data stored in UserProfile via AsyncStorage and passed to AI coach for perso
   - Technique analysis (`/api/coach/analyze-technique` - runs MediaPipe pose detection first, then GPT-4o vision with skeleton-annotated images + joint angle data, streaming SSE)
   - Pose detection (`/api/coach/pose-detect` - standalone MediaPipe pose landmarker, returns 33 body landmarks, joint angles, symmetry data, and annotated images)
   - Video frame extraction (`/api/coach/extract-frames` - ffmpeg extracts 6 evenly-spaced key frames from uploaded video)
+  - Text-to-speech (`/api/coach/tts` - converts analysis text to spoken audio via gpt-audio model with nova voice, returns base64 WAV)
   - Meal analysis from photos/descriptions
   - Workout plan generation
 - **Static Serving**: In production, serves Expo web build from `dist/` directory. In dev, proxies to Expo's Metro bundler

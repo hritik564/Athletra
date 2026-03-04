@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Platform, ScrollView,
-  Image, TextInput, Dimensions, ActivityIndicator,
+  Image, TextInput, Dimensions, ActivityIndicator, Modal,
 } from 'react-native';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,7 +9,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import { fetch } from 'expo/fetch';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/contexts/ThemeContext';
@@ -92,8 +91,10 @@ export default function AnalyzeScreen() {
   const [annotatedImages, setAnnotatedImages] = useState<string[]>([]);
   const [poseAngles, setPoseAngles] = useState<Record<string, number>[]>([]);
   const [poseDetected, setPoseDetected] = useState(false);
+  const [poseMessage, setPoseMessage] = useState('');
   const [isDetectingPose, setIsDetectingPose] = useState(false);
   const [showAnnotated, setShowAnnotated] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [facing, setFacing] = useState<'front' | 'back'>('back');
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
@@ -184,30 +185,26 @@ export default function AnalyzeScreen() {
     }
   };
 
+  const readFileAsBase64 = async (uri: string): Promise<string> => {
+    const response = await globalThis.fetch(uri);
+    const blob = await response.blob();
+    const reader = new FileReader();
+    return new Promise<string>((resolve, reject) => {
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(',')[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
   const extractFramesFromVideo = async (uri: string) => {
     setIsExtractingFrames(true);
     setMode('review');
 
     try {
-      let base64Video: string;
-
-      if (Platform.OS === 'web') {
-        const response = await globalThis.fetch(uri);
-        const blob = await response.blob();
-        const reader = new FileReader();
-        base64Video = await new Promise<string>((resolve, reject) => {
-          reader.onload = () => {
-            const result = reader.result as string;
-            resolve(result.split(',')[1]);
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      } else {
-        base64Video = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-      }
+      const base64Video = await readFileAsBase64(uri);
 
       const baseUrl = getApiUrl();
       const extractRes = await globalThis.fetch(`${baseUrl}api/coach/extract-frames`, {
@@ -247,6 +244,7 @@ export default function AnalyzeScreen() {
     if (selectedImages.length === 0) return;
 
     setIsDetectingPose(true);
+    setPoseMessage('');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
@@ -270,15 +268,21 @@ export default function AnalyzeScreen() {
 
         setAnnotatedImages(imgs);
         setPoseAngles(angles);
-        setPoseDetected(imgs.length > 0);
+        setPoseDetected(true);
         setShowAnnotated(imgs.length > 0);
 
         if (imgs.length > 0) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setPoseMessage(`Pose detected in ${imgs.length} of ${selectedImages.length} image${selectedImages.length !== 1 ? 's' : ''}`);
+        } else {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          setPoseMessage('No body pose detected. Try photos with a clearer full-body view. AI will still analyze your technique visually.');
         }
       }
     } catch (e) {
       console.error('Pose detection error:', e);
+      setPoseDetected(true);
+      setPoseMessage('Pose detection unavailable. AI will analyze your technique visually.');
     } finally {
       setIsDetectingPose(false);
     }
@@ -380,7 +384,9 @@ export default function AnalyzeScreen() {
     setAnnotatedImages([]);
     setPoseAngles([]);
     setPoseDetected(false);
+    setPoseMessage('');
     setShowAnnotated(false);
+    setPreviewImage(null);
     setMode('select');
   };
 
@@ -588,7 +594,7 @@ export default function AnalyzeScreen() {
             </Text>
             <View style={styles.imageGrid}>
               {selectedImages.map((img, i) => (
-                <View key={i} style={styles.imageThumb}>
+                <Pressable key={i} style={styles.imageThumb} onPress={() => setPreviewImage(img)}>
                   <Image source={{ uri: img }} style={styles.thumbImage} />
                   <Pressable style={styles.removeImageBtn} onPress={() => removeImage(i)}>
                     <Ionicons name="close-circle" size={22} color={Colors.error} />
@@ -598,7 +604,10 @@ export default function AnalyzeScreen() {
                       <Text style={styles.frameBadgeText}>F{i + 1}</Text>
                     </View>
                   )}
-                </View>
+                  <View style={styles.expandBadge}>
+                    <Ionicons name="expand" size={10} color="#fff" />
+                  </View>
+                </Pressable>
               ))}
               {!videoUri && selectedImages.length < 6 && (
                 <Pressable style={styles.addMoreBtn} onPress={() => setMode('camera')}>
@@ -621,47 +630,54 @@ export default function AnalyzeScreen() {
                     <ActivityIndicator size="small" color={Colors.accent} />
                     <Text style={styles.poseDetectingText}>Detecting body pose...</Text>
                   </View>
-                ) : poseDetected && annotatedImages.length > 0 ? (
+                ) : poseDetected ? (
                   <View>
-                    <Pressable
-                      style={styles.poseResultBar}
-                      onPress={() => setShowAnnotated(!showAnnotated)}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Ionicons name="body" size={18} color={Colors.success} />
-                        <Text style={styles.poseResultText}>
-                          Pose detected in {annotatedImages.length} image{annotatedImages.length !== 1 ? 's' : ''}
-                        </Text>
-                      </View>
-                      <Ionicons
-                        name={showAnnotated ? 'chevron-up' : 'chevron-down'}
-                        size={18}
-                        color={Colors.textSecondary}
-                      />
-                    </Pressable>
+                    {annotatedImages.length > 0 ? (
+                      <>
+                        <Pressable
+                          style={styles.poseResultBar}
+                          onPress={() => setShowAnnotated(!showAnnotated)}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Ionicons name="body" size={18} color={Colors.success} />
+                            <Text style={styles.poseResultText}>{poseMessage}</Text>
+                          </View>
+                          <Ionicons
+                            name={showAnnotated ? 'chevron-up' : 'chevron-down'}
+                            size={18}
+                            color={Colors.textSecondary}
+                          />
+                        </Pressable>
 
-                    {showAnnotated && (
-                      <View style={styles.annotatedSection}>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                          {annotatedImages.map((img, i) => (
-                            <View key={`annotated-${i}`}>
-                              <Image source={{ uri: img }} style={styles.annotatedThumb} />
-                              <View style={styles.poseBadge}>
-                                <Ionicons name="body" size={10} color="#fff" />
+                        {showAnnotated && (
+                          <View style={styles.annotatedSection}>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                              {annotatedImages.map((img, i) => (
+                                <Pressable key={`annotated-${i}`} onPress={() => setPreviewImage(img)}>
+                                  <Image source={{ uri: img }} style={styles.annotatedThumb} />
+                                  <View style={styles.poseBadge}>
+                                    <Ionicons name="body" size={10} color="#fff" />
+                                  </View>
+                                </Pressable>
+                              ))}
+                            </ScrollView>
+                            {poseAngles.length > 0 && poseAngles[0] && Object.keys(poseAngles[0]).length > 0 && (
+                              <View style={styles.anglesRow}>
+                                {Object.entries(poseAngles[0]).slice(0, 6).map(([joint, angle]) => (
+                                  <View key={joint} style={styles.anglePill}>
+                                    <Text style={styles.anglePillLabel}>{joint.replace(/_/g, ' ')}</Text>
+                                    <Text style={styles.anglePillValue}>{String(angle)}°</Text>
+                                  </View>
+                                ))}
                               </View>
-                            </View>
-                          ))}
-                        </ScrollView>
-                        {poseAngles.length > 0 && poseAngles[0] && Object.keys(poseAngles[0]).length > 0 && (
-                          <View style={styles.anglesRow}>
-                            {Object.entries(poseAngles[0]).slice(0, 6).map(([joint, angle]) => (
-                              <View key={joint} style={styles.anglePill}>
-                                <Text style={styles.anglePillLabel}>{joint.replace(/_/g, ' ')}</Text>
-                                <Text style={styles.anglePillValue}>{String(angle)}°</Text>
-                              </View>
-                            ))}
+                            )}
                           </View>
                         )}
+                      </>
+                    ) : (
+                      <View style={styles.poseNoDetectBar}>
+                        <Ionicons name="information-circle" size={18} color={Colors.warning} />
+                        <Text style={styles.poseNoDetectText}>{poseMessage}</Text>
                       </View>
                     )}
                   </View>
@@ -779,6 +795,28 @@ export default function AnalyzeScreen() {
           </Pressable>
         </View>
       )}
+
+      <Modal
+        visible={!!previewImage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImage(null)}
+      >
+        <Pressable style={styles.previewOverlay} onPress={() => setPreviewImage(null)}>
+          <View style={[styles.previewContainer, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }]}>
+            <Pressable style={styles.previewCloseBtn} onPress={() => setPreviewImage(null)}>
+              <Ionicons name="close-circle" size={32} color="#fff" />
+            </Pressable>
+            {previewImage && (
+              <Image
+                source={{ uri: previewImage }}
+                style={styles.previewFullImage}
+                resizeMode="contain"
+              />
+            )}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -851,6 +889,11 @@ const createStyles = (C: any) => StyleSheet.create({
     backgroundColor: C.accent + '12', borderRadius: 12, marginBottom: 16,
   },
   extractingText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: C.accent },
+  expandBadge: {
+    position: 'absolute', bottom: 4, right: 4,
+    backgroundColor: 'rgba(0,0,0,0.5)', width: 18, height: 18, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+  },
   poseSection: { marginBottom: 16 },
   poseDetectingBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 16,
@@ -862,7 +905,12 @@ const createStyles = (C: any) => StyleSheet.create({
     paddingVertical: 12, paddingHorizontal: 16,
     backgroundColor: C.success + '14', borderRadius: 12,
   },
-  poseResultText: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: C.success },
+  poseResultText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: C.success, flex: 1 },
+  poseNoDetectBar: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 12, paddingHorizontal: 16,
+    backgroundColor: C.warning + '14', borderRadius: 12,
+  },
+  poseNoDetectText: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: C.warning, flex: 1, lineHeight: 18 },
   detectPoseBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     paddingVertical: 12, paddingHorizontal: 16,
@@ -870,6 +918,18 @@ const createStyles = (C: any) => StyleSheet.create({
     borderWidth: 1, borderColor: C.accent + '30',
   },
   detectPoseBtnText: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: C.accent },
+  previewOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center',
+  },
+  previewContainer: {
+    flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16,
+  },
+  previewCloseBtn: {
+    position: 'absolute', top: 50, right: 16, zIndex: 10,
+  },
+  previewFullImage: {
+    width: '100%', height: '80%', borderRadius: 12,
+  },
   annotatedSection: { marginTop: 10, gap: 10 },
   annotatedThumb: { width: 120, height: 120, borderRadius: 12, borderWidth: 1, borderColor: C.accent + '40' },
   poseHeader: {

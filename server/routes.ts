@@ -1,7 +1,93 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
+import { execSync, spawn } from "node:child_process";
+import path from "node:path";
 import OpenAI from "openai";
 import express from "express";
+
+interface PoseResult {
+  detected: boolean;
+  landmarks?: Record<string, { x: number; y: number; z: number; visibility: number }>;
+  angles?: Record<string, number>;
+  symmetry?: {
+    shoulder_level_diff: number;
+    hip_level_diff: number;
+    shoulders_aligned: boolean;
+    hips_aligned: boolean;
+  };
+  annotated_image?: string;
+}
+
+async function runPoseDetection(images: string[]): Promise<PoseResult[]> {
+  const scriptPath = path.join(import.meta.dirname || __dirname, "pose_detection.py");
+  const input = JSON.stringify({ images });
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn("python3", [scriptPath], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+    proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        console.error("Pose detection stderr:", stderr);
+        reject(new Error(`Pose detection failed with code ${code}`));
+        return;
+      }
+      try {
+        const result = JSON.parse(stdout);
+        resolve(result.results || []);
+      } catch (e) {
+        reject(new Error("Failed to parse pose detection output"));
+      }
+    });
+
+    proc.on("error", reject);
+
+    const timeout = setTimeout(() => {
+      proc.kill("SIGKILL");
+      reject(new Error("Pose detection timed out"));
+    }, 60000);
+
+    proc.on("close", () => clearTimeout(timeout));
+
+    proc.stdin.write(input);
+    proc.stdin.end();
+  });
+}
+
+function formatPoseDataForAI(poseResults: PoseResult[]): string {
+  const framesWithPose = poseResults.filter(r => r.detected);
+  if (framesWithPose.length === 0) return "";
+
+  let report = "\n\n--- MEDIAPIPE POSE DETECTION DATA ---\n";
+  report += `Pose detected in ${framesWithPose.length}/${poseResults.length} images.\n`;
+
+  framesWithPose.forEach((r, i) => {
+    report += `\n[Image ${i + 1}]\n`;
+    if (r.angles && Object.keys(r.angles).length > 0) {
+      report += "Joint Angles:\n";
+      for (const [joint, angle] of Object.entries(r.angles)) {
+        const label = joint.replace(/_/g, " ");
+        report += `  - ${label}: ${angle}°\n`;
+      }
+    }
+    if (r.symmetry) {
+      report += "Body Symmetry:\n";
+      report += `  - Shoulders aligned: ${r.symmetry.shoulders_aligned ? "Yes" : `No (${(r.symmetry.shoulder_level_diff * 100).toFixed(1)}% off)`}\n`;
+      report += `  - Hips aligned: ${r.symmetry.hips_aligned ? "Yes" : `No (${(r.symmetry.hip_level_diff * 100).toFixed(1)}% off)`}\n`;
+    }
+  });
+
+  report += "\nThe annotated images show the skeleton overlay with joint angles marked. Use this precise data to give biomechanically accurate feedback.\n";
+  report += "--- END POSE DATA ---";
+  return report;
+}
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -275,9 +361,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Video data required" });
       }
 
-      const { execSync } = await import("child_process");
       const fs = await import("fs");
-      const path = await import("path");
       const os = await import("os");
 
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vitalcoach-'));
@@ -338,6 +422,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/coach/pose-detect", express.json({ limit: "50mb" }), async (req: Request, res: Response) => {
+    try {
+      const { images } = req.body;
+      if (!images || !Array.isArray(images) || images.length === 0) {
+        return res.status(400).json({ error: "At least one image is required" });
+      }
+
+      const poseResults = await runPoseDetection(images.slice(0, 6));
+      const detected = poseResults.filter(r => r.detected).length;
+
+      res.json({
+        results: poseResults,
+        summary: {
+          total: poseResults.length,
+          detected,
+        }
+      });
+    } catch (error) {
+      console.error("Pose detection error:", error);
+      res.status(500).json({ error: "Pose detection failed" });
+    }
+  });
+
   app.post("/api/coach/analyze-technique", express.json({ limit: "50mb" }), async (req: Request, res: Response) => {
     try {
       const { images, userProfile, sport, description } = req.body;
@@ -349,10 +456,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const profileContext = buildProfileContext(userProfile);
       const sportContext = sport || userProfile?.sport || 'general athletics';
 
-      const systemPrompt = `You are VitalCoach's elite technique analyst. You specialize in sports biomechanics and movement analysis across all sports.
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
 
+      res.write(`data: ${JSON.stringify({ status: "Detecting body pose..." })}\n\n`);
+
+      let poseResults: PoseResult[] = [];
+      let poseDataText = "";
+      let annotatedImages = images.slice(0, 6);
+
+      try {
+        poseResults = await runPoseDetection(images.slice(0, 6));
+        poseDataText = formatPoseDataForAI(poseResults);
+
+        const inputImages = images.slice(0, 6);
+        annotatedImages = inputImages.map((original: string, i: number) => {
+          const poseResult = poseResults[i];
+          if (poseResult?.detected && poseResult.annotated_image) {
+            return poseResult.annotated_image;
+          }
+          return original.startsWith('data:') ? original.split(',')[1] : original;
+        });
+
+        const detectedCount = poseResults.filter(r => r.detected).length;
+        res.write(`data: ${JSON.stringify({ status: `Pose detected in ${detectedCount}/${poseResults.length} images. Analyzing technique...` })}\n\n`);
+
+        if (poseResults.some(r => r.detected)) {
+          const posePreview = poseResults
+            .filter(r => r.detected)
+            .map(r => ({
+              annotated_image: r.annotated_image,
+              angles: r.angles,
+              symmetry: r.symmetry,
+            }));
+          res.write(`data: ${JSON.stringify({ pose_results: posePreview })}\n\n`);
+        }
+      } catch (poseError) {
+        console.error("Pose detection failed, continuing without:", poseError);
+        res.write(`data: ${JSON.stringify({ status: "Analyzing technique with visual inspection..." })}\n\n`);
+        annotatedImages = images.slice(0, 6).map((img: string) =>
+          img.startsWith('data:') ? img.split(',')[1] : img
+        );
+      }
+
+      const hasPoseData = poseDataText.length > 0;
+
+      const systemPrompt = `You are VitalCoach's elite technique analyst. You specialize in sports biomechanics and movement analysis across all sports.
+${hasPoseData ? `
+IMPORTANT: You have been provided with precise MediaPipe pose detection data including joint angles (in degrees) and body symmetry measurements. The annotated images show the detected skeleton overlay. USE THIS DATA to provide biomechanically precise feedback — reference specific angles and measurements in your analysis rather than just visual impressions.
+` : ''}
 Your analysis approach:
 - Examine body positioning, alignment, and form in each image
+- ${hasPoseData ? 'Reference the exact joint angle measurements provided by MediaPipe' : 'Estimate body positioning from visual inspection'}
 - If multiple frames are provided, analyze movement patterns and transitions
 - Provide sport-specific feedback based on the athlete's sport: ${sportContext}
 - Be direct and actionable — athletes want to know exactly what to fix
@@ -361,12 +518,12 @@ Your analysis approach:
 
 Format your response as:
 **Sport**: ${sportContext}
-
+${hasPoseData ? '\n**Pose Analysis** (from MediaPipe)\n- [Reference specific joint angles and what they indicate for the sport]\n- [Note any asymmetries or alignment issues detected]\n' : ''}
 **What You're Doing Well**
 - [specific positives with detail]
 
 **Areas to Improve**
-- [specific corrections with how-to instructions]
+- [specific corrections with how-to instructions${hasPoseData ? ', referencing measured angles vs ideal angles for the sport' : ''}]
 
 **Key Metrics**
 - Form: X/10
@@ -378,7 +535,7 @@ Format your response as:
 
 ${profileContext}`;
 
-      const imageContent = images.slice(0, 6).map((img: string) => ({
+      const imageContent = annotatedImages.map((img: string) => ({
         type: "image_url" as const,
         image_url: {
           url: img.startsWith('data:') ? img : `data:image/jpeg;base64,${img}`,
@@ -386,20 +543,17 @@ ${profileContext}`;
         },
       }));
 
+      const descriptionText = description
+        ? `Analyze my ${sportContext} technique. Additional context: ${description}`
+        : `Analyze my ${sportContext} technique in these images. Provide detailed, actionable feedback.`;
+
       const userContent: any[] = [
         ...imageContent,
         {
           type: "text" as const,
-          text: description
-            ? `Analyze my ${sportContext} technique. Additional context: ${description}`
-            : `Analyze my ${sportContext} technique in these images. Provide detailed, actionable feedback.`,
+          text: descriptionText + poseDataText,
         },
       ];
-
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache, no-transform");
-      res.setHeader("X-Accel-Buffering", "no");
-      res.flushHeaders();
 
       const stream = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -424,6 +578,7 @@ ${profileContext}`;
       console.error("Technique analysis error:", error);
       if (res.headersSent) {
         res.write(`data: ${JSON.stringify({ error: "Failed to analyze technique" })}\n\n`);
+        res.write("data: [DONE]\n\n");
         res.end();
       } else {
         res.status(500).json({ error: "Failed to analyze technique" });

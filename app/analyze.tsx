@@ -88,6 +88,9 @@ export default function AnalyzeScreen() {
   const [isExtractingFrames, setIsExtractingFrames] = useState(false);
   const [description, setDescription] = useState('');
   const [analysisResult, setAnalysisResult] = useState('');
+  const [analysisStatus, setAnalysisStatus] = useState('');
+  const [annotatedImages, setAnnotatedImages] = useState<string[]>([]);
+  const [poseAngles, setPoseAngles] = useState<Record<string, number>[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [facing, setFacing] = useState<'front' | 'back'>('back');
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
@@ -243,6 +246,9 @@ export default function AnalyzeScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setMode('analyzing');
     setAnalysisResult('');
+    setAnalysisStatus('Detecting body pose...');
+    setAnnotatedImages([]);
+    setPoseAngles([]);
     setIsStreaming(true);
 
     try {
@@ -284,9 +290,28 @@ export default function AnalyzeScreen() {
 
           try {
             const parsed = JSON.parse(data);
+            if (parsed.error) {
+              fullContent += '\n\n' + parsed.error;
+              setAnalysisResult(fullContent || parsed.error);
+              break;
+            }
+            if (parsed.status) {
+              setAnalysisStatus(parsed.status);
+            }
+            if (parsed.pose_results) {
+              const imgs = parsed.pose_results
+                .filter((r: any) => r.annotated_image)
+                .map((r: any) => `data:image/jpeg;base64,${r.annotated_image}`);
+              setAnnotatedImages(imgs);
+              const angles = parsed.pose_results
+                .filter((r: any) => r.angles)
+                .map((r: any) => r.angles);
+              setPoseAngles(angles);
+            }
             if (parsed.content) {
               fullContent += parsed.content;
               setAnalysisResult(fullContent);
+              setAnalysisStatus('');
             }
           } catch {}
         }
@@ -299,6 +324,7 @@ export default function AnalyzeScreen() {
       setMode('result');
     } finally {
       setIsStreaming(false);
+      setAnalysisStatus('');
     }
   };
 
@@ -492,6 +518,10 @@ export default function AnalyzeScreen() {
                 <Ionicons name="videocam" size={16} color={Colors.success} />
                 <Text style={styles.tipText}>Videos up to 30s — we extract 6 key frames</Text>
               </View>
+              <View style={styles.tipRow}>
+                <Ionicons name="fitness" size={16} color={Colors.accent} />
+                <Text style={styles.tipText}>AI pose detection measures your joint angles</Text>
+              </View>
             </View>
           </>
         )}
@@ -560,18 +590,51 @@ export default function AnalyzeScreen() {
 
         {(mode === 'analyzing' || mode === 'result') && (
           <View>
-            <View style={styles.selectedPreview}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                {selectedImages.map((img, i) => (
-                  <Image key={i} source={{ uri: img }} style={styles.previewThumb} />
-                ))}
-              </ScrollView>
-            </View>
+            {annotatedImages.length > 0 ? (
+              <View>
+                <View style={styles.poseHeader}>
+                  <Ionicons name="body" size={16} color={Colors.accent} />
+                  <Text style={styles.poseHeaderText}>Pose Detection</Text>
+                </View>
+                <View style={styles.selectedPreview}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                    {annotatedImages.map((img, i) => (
+                      <View key={`annotated-${i}`}>
+                        <Image source={{ uri: img }} style={styles.previewThumb} />
+                        <View style={styles.poseBadge}>
+                          <Ionicons name="body" size={10} color="#fff" />
+                        </View>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+                {poseAngles.length > 0 && poseAngles[0] && Object.keys(poseAngles[0]).length > 0 && (
+                  <View style={styles.anglesRow}>
+                    {Object.entries(poseAngles[0]).slice(0, 6).map(([joint, angle]) => (
+                      <View key={joint} style={styles.anglePill}>
+                        <Text style={styles.anglePillLabel}>{joint.replace(/_/g, ' ')}</Text>
+                        <Text style={styles.anglePillValue}>{String(angle)}°</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            ) : (
+              <View style={styles.selectedPreview}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {selectedImages.map((img, i) => (
+                    <Image key={i} source={{ uri: img }} style={styles.previewThumb} />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
             {isStreaming && (
               <View style={styles.analyzingBar}>
                 <ActivityIndicator size="small" color={Colors.primary} />
-                <Text style={styles.analyzingText}>Analyzing your technique...</Text>
+                <Text style={styles.analyzingText}>
+                  {analysisStatus || 'Analyzing your technique...'}
+                </Text>
               </View>
             )}
 
@@ -680,6 +743,24 @@ const createStyles = (C: any) => StyleSheet.create({
     backgroundColor: C.accent + '12', borderRadius: 12, marginBottom: 16,
   },
   extractingText: { fontSize: 14, fontFamily: 'Outfit_500Medium', color: C.accent },
+  poseHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8,
+  },
+  poseHeaderText: { fontSize: 14, fontFamily: 'Outfit_700Bold', color: C.accent },
+  poseBadge: {
+    position: 'absolute', bottom: 4, right: 4,
+    backgroundColor: C.accent, width: 20, height: 20, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  anglesRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 16,
+  },
+  anglePill: {
+    backgroundColor: C.surface, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderColor: C.border, alignItems: 'center',
+  },
+  anglePillLabel: { fontSize: 9, fontFamily: 'Outfit_500Medium', color: C.textMuted, textTransform: 'capitalize' },
+  anglePillValue: { fontSize: 12, fontFamily: 'Outfit_700Bold', color: C.primary },
   selectedPreview: { marginBottom: 16 },
   previewThumb: { width: 80, height: 80, borderRadius: 10, borderWidth: 1, borderColor: C.border },
   analyzingBar: {

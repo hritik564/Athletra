@@ -354,6 +354,233 @@ def detect_movement_phases(detected_frames, angle_timelines, deltas):
     return phases
 
 
+def generate_correction_guide(img_b64, landmarks_data, joint_name, current_angle, target_angle, angle_def, all_landmarks_raw):
+    raw = base64.b64decode(img_b64)
+    arr = np.frombuffer(raw, np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        return None
+
+    h, w = img.shape[:2]
+    overlay = img.copy()
+
+    _, a_idx, b_idx, c_idx = angle_def
+
+    if a_idx >= len(all_landmarks_raw) or b_idx >= len(all_landmarks_raw) or c_idx >= len(all_landmarks_raw):
+        return None
+
+    lm_a = all_landmarks_raw[a_idx]
+    lm_b = all_landmarks_raw[b_idx]
+    lm_c = all_landmarks_raw[c_idx]
+
+    pa = (int(lm_a.x * w), int(lm_a.y * h))
+    pb = (int(lm_b.x * w), int(lm_b.y * h))
+    pc = (int(lm_c.x * w), int(lm_c.y * h))
+
+    cv2.line(overlay, pb, pa, (80, 180, 255), 3, cv2.LINE_AA)
+    cv2.line(overlay, pb, pc, (0, 80, 255), 4, cv2.LINE_AA)
+
+    angle_diff = target_angle - current_angle
+    vec_bc = np.array([pc[0] - pb[0], pc[1] - pb[1]], dtype=float)
+    vec_ba = np.array([pa[0] - pb[0], pa[1] - pb[1]], dtype=float)
+    len_bc = np.linalg.norm(vec_bc)
+
+    if len_bc < 1:
+        return None
+
+    cross = vec_ba[0] * vec_bc[1] - vec_ba[1] * vec_bc[0]
+    rotation_sign = 1.0 if cross > 0 else -1.0
+    rot_rad = rotation_sign * math.radians(angle_diff)
+
+    cos_r = math.cos(rot_rad)
+    sin_r = math.sin(rot_rad)
+    guide_vec = np.array([
+        vec_bc[0] * cos_r - vec_bc[1] * sin_r,
+        vec_bc[0] * sin_r + vec_bc[1] * cos_r
+    ])
+    pc_target = (int(pb[0] + guide_vec[0]), int(pb[1] + guide_vec[1]))
+
+    dash_len = 12
+    guide_line_len = np.linalg.norm(guide_vec)
+    if guide_line_len > 0:
+        unit = guide_vec / guide_line_len
+        num_dashes = int(guide_line_len / dash_len)
+        for d in range(0, num_dashes, 2):
+            start_pt = (int(pb[0] + unit[0] * d * dash_len), int(pb[1] + unit[1] * d * dash_len))
+            end_pt = (int(pb[0] + unit[0] * min((d + 1) * dash_len, guide_line_len)),
+                       int(pb[1] + unit[1] * min((d + 1) * dash_len, guide_line_len)))
+            cv2.line(overlay, start_pt, end_pt, (0, 220, 100), 3, cv2.LINE_AA)
+
+    cv2.circle(overlay, pc_target, 8, (0, 220, 100), -1, cv2.LINE_AA)
+    cv2.circle(overlay, pc_target, 10, (255, 255, 255), 2, cv2.LINE_AA)
+
+    angle_a_rad = math.atan2(pa[1] - pb[1], pa[0] - pb[0])
+    angle_c_rad = math.atan2(pc[1] - pb[1], pc[0] - pb[0])
+    angle_t_rad = math.atan2(pc_target[1] - pb[1], pc_target[0] - pb[0])
+
+    arc_radius = min(40, int(len_bc * 0.3))
+
+    start_deg_curr = math.degrees(min(angle_a_rad, angle_c_rad))
+    end_deg_curr = math.degrees(max(angle_a_rad, angle_c_rad))
+    if end_deg_curr - start_deg_curr > 180:
+        start_deg_curr, end_deg_curr = end_deg_curr, start_deg_curr + 360
+
+    cv2.ellipse(overlay, pb, (arc_radius, arc_radius),
+                0, start_deg_curr, end_deg_curr, (0, 80, 255), 2, cv2.LINE_AA)
+
+    start_deg_tgt = math.degrees(min(angle_a_rad, angle_t_rad))
+    end_deg_tgt = math.degrees(max(angle_a_rad, angle_t_rad))
+    if end_deg_tgt - start_deg_tgt > 180:
+        start_deg_tgt, end_deg_tgt = end_deg_tgt, start_deg_tgt + 360
+
+    cv2.ellipse(overlay, pb, (arc_radius + 6, arc_radius + 6),
+                0, start_deg_tgt, end_deg_tgt, (0, 220, 100), 2, cv2.LINE_AA)
+
+    cv2.addWeighted(overlay, 0.85, img, 0.15, 0, img)
+
+    cv2.circle(img, pb, 10, (255, 255, 255), -1, cv2.LINE_AA)
+    cv2.circle(img, pb, 12, (0, 80, 255), 2, cv2.LINE_AA)
+
+    joint_label = joint_name.replace("_", " ").title()
+    label_x = pb[0] + 16
+    label_y = pb[1] - 20
+
+    panel_w = 220
+    panel_h = 80
+    px1 = max(0, label_x - 8)
+    py1 = max(0, label_y - 50)
+    px2 = min(w, px1 + panel_w)
+    py2 = min(h, py1 + panel_h)
+
+    panel_overlay = img.copy()
+    cv2.rectangle(panel_overlay, (px1, py1), (px2, py2), (20, 20, 30), -1)
+    cv2.addWeighted(panel_overlay, 0.82, img, 0.18, 0, img)
+    cv2.rectangle(img, (px1, py1), (px2, py2), (100, 100, 120), 1, cv2.LINE_AA)
+
+    cv2.putText(img, joint_label, (px1 + 8, py1 + 18),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+    cv2.circle(img, (px1 + 12, py1 + 36), 5, (0, 80, 255), -1, cv2.LINE_AA)
+    cv2.putText(img, f"Current: {current_angle:.0f}", (px1 + 22, py1 + 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (80, 180, 255), 1, cv2.LINE_AA)
+
+    cv2.circle(img, (px1 + 12, py1 + 58), 5, (0, 220, 100), -1, cv2.LINE_AA)
+    cv2.putText(img, f"Target: {target_angle:.0f}", (px1 + 22, py1 + 62),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 220, 100), 1, cv2.LINE_AA)
+
+    delta = abs(target_angle - current_angle)
+    delta_text = f"Adjust by {delta:.0f}"
+    direction = "more" if target_angle > current_angle else "less"
+    cv2.putText(img, f"{delta_text} ({direction})", (px1 + 120, py1 + 51),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 200, 220), 1, cv2.LINE_AA)
+
+    _, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    return base64.b64encode(buf).decode('utf-8')
+
+
+def find_worst_error_frame(results, motion_analysis):
+    if not motion_analysis:
+        return None
+
+    rom = motion_analysis.get("range_of_motion", {})
+    worst = None
+    worst_deviation = 0
+
+    for joint, r in rom.items():
+        flag = r.get("flag", "normal")
+        if flag == "normal":
+            continue
+
+        ref_min = r.get("reference_min", 0)
+        ref_max = r.get("reference_max", 180)
+
+        if flag == "below_minimum":
+            deviation = ref_min - r.get("min_angle", ref_min)
+            frame_idx = r.get("min_frame", 1) - 1
+            target = ref_min
+            current = r.get("min_angle", ref_min)
+        elif flag == "above_maximum":
+            deviation = r.get("max_angle", ref_max) - ref_max
+            frame_idx = r.get("max_frame", 1) - 1
+            target = ref_max
+            current = r.get("max_angle", ref_max)
+        elif flag == "limited_rom":
+            deviation = 5
+            frame_idx = r.get("min_frame", 1) - 1
+            target = ref_min + (ref_max - ref_min) * 0.5
+            current = r.get("min_angle", ref_min)
+        else:
+            continue
+
+        if deviation > worst_deviation:
+            worst_deviation = deviation
+            angle_def_match = None
+            for ad in ANGLE_DEFS:
+                if ad[0] == joint:
+                    angle_def_match = ad
+                    break
+            if angle_def_match:
+                worst = {
+                    "joint": joint,
+                    "current_angle": current,
+                    "target_angle": target,
+                    "frame_index": frame_idx,
+                    "deviation": deviation,
+                    "angle_def": angle_def_match,
+                    "label": r.get("reference_label", joint.replace("_", " ").title()),
+                }
+
+    asym = motion_analysis.get("asymmetries", [])
+    for a in asym:
+        if not a.get("flagged"):
+            continue
+        avg_diff = a.get("avg_difference", 0)
+        if avg_diff > worst_deviation:
+            left_j = a.get("left_joint", "")
+            right_j = a.get("right_joint", "")
+            frame_idx = a.get("max_diff_frame", 1) - 1
+
+            left_ad = None
+            for ad in ANGLE_DEFS:
+                if ad[0] == left_j:
+                    left_ad = ad
+                    break
+            if not left_ad:
+                continue
+
+            target_fi = frame_idx
+            if target_fi < 0 or target_fi >= len(results):
+                target_fi = 0
+
+            frame_angles = results[target_fi].get("angles", {}) if results[target_fi].get("detected") else {}
+            left_val = frame_angles.get(left_j, 0)
+            right_val = frame_angles.get(right_j, 0)
+
+            if left_val > 0 and right_val > 0:
+                worse_side = left_j if abs(left_val - right_val) > 0 and left_val > right_val else right_j
+                current = max(left_val, right_val)
+                target = min(left_val, right_val)
+
+                guide_ad = left_ad
+                for ad in ANGLE_DEFS:
+                    if ad[0] == worse_side:
+                        guide_ad = ad
+                        break
+
+                worst_deviation = avg_diff
+                worst = {
+                    "joint": worse_side,
+                    "current_angle": current,
+                    "target_angle": target,
+                    "frame_index": frame_idx,
+                    "deviation": avg_diff,
+                    "angle_def": guide_ad,
+                    "label": a.get("joint", "") + " Symmetry",
+                }
+
+    return worst
+
+
 def find_error_joints(motion_analysis):
     if not motion_analysis or motion_analysis.get("error"):
         return set()
@@ -425,6 +652,7 @@ def main():
             motion_analysis = {"error": str(e)}
 
     err_joints = find_error_joints(motion_analysis)
+    correction_guide = None
 
     if err_joints:
         with vision.PoseLandmarker.create_from_options(options) as landmarker2:
@@ -437,9 +665,51 @@ def main():
                     except Exception:
                         pass
 
+            worst = find_worst_error_frame(results, motion_analysis)
+            if worst:
+                fi = worst["frame_index"]
+                if 0 <= fi < len(clean_images) and results[fi].get("detected"):
+                    try:
+                        raw_img = base64.b64decode(clean_images[fi])
+                        arr_img = np.frombuffer(raw_img, np.uint8)
+                        cv_img = cv2.imdecode(arr_img, cv2.IMREAD_COLOR)
+                        if cv_img is not None:
+                            rgb_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+                            mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
+                            det = landmarker2.detect(mp_img)
+                            if det.pose_landmarks and len(det.pose_landmarks) > 0:
+                                ad = worst["angle_def"]
+                                lms = det.pose_landmarks[0]
+                                if (ad[1] < len(lms) and ad[2] < len(lms) and ad[3] < len(lms)
+                                        and lms[ad[1]].visibility > 0.4
+                                        and lms[ad[2]].visibility > 0.4
+                                        and lms[ad[3]].visibility > 0.4):
+                                    guide_img = generate_correction_guide(
+                                        clean_images[fi],
+                                        results[fi].get("landmarks", {}),
+                                        worst["joint"],
+                                        worst["current_angle"],
+                                        worst["target_angle"],
+                                        worst["angle_def"],
+                                        lms
+                                    )
+                                    if guide_img:
+                                        correction_guide = {
+                                            "image": guide_img,
+                                            "joint": worst["joint"],
+                                            "joint_label": worst["label"],
+                                            "current_angle": worst["current_angle"],
+                                            "target_angle": worst["target_angle"],
+                                            "frame_index": fi + 1,
+                                            "deviation": round(worst["deviation"], 1),
+                                        }
+                    except Exception:
+                        pass
+
     output = json.dumps({
         "results": results,
-        "motion_analysis": motion_analysis
+        "motion_analysis": motion_analysis,
+        "correction_guide": correction_guide,
     })
     sys.stdout.write(output)
     sys.stdout.flush()

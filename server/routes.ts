@@ -71,9 +71,20 @@ interface MotionAnalysis {
   error?: string;
 }
 
+interface CorrectionGuide {
+  image: string;
+  joint: string;
+  joint_label: string;
+  current_angle: number;
+  target_angle: number;
+  frame_index: number;
+  deviation: number;
+}
+
 interface PoseDetectionOutput {
   results: PoseResult[];
   motion_analysis: MotionAnalysis | null;
+  correction_guide: CorrectionGuide | null;
 }
 
 async function runPoseDetection(images: string[]): Promise<PoseDetectionOutput> {
@@ -102,6 +113,7 @@ async function runPoseDetection(images: string[]): Promise<PoseDetectionOutput> 
         resolve({
           results: result.results || [],
           motion_analysis: result.motion_analysis || null,
+          correction_guide: result.correction_guide || null,
         });
       } catch (e) {
         reject(new Error("Failed to parse pose detection output"));
@@ -697,10 +709,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let poseDataText = "";
       let annotatedImages = images.slice(0, 6);
 
+      let correctionGuide: CorrectionGuide | null = null;
+
       try {
         const poseOutput = await runPoseDetection(images.slice(0, 6));
         poseResults = poseOutput.results;
         motionAnalysis = poseOutput.motion_analysis;
+        correctionGuide = poseOutput.correction_guide;
         poseDataText = formatPoseDataForAI(poseResults, motionAnalysis);
 
         const inputImages = images.slice(0, 6);
@@ -727,7 +742,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               angles: r.angles,
               symmetry: r.symmetry,
             }));
-          res.write(`data: ${JSON.stringify({ pose_results: posePreview, motion_analysis: motionAnalysis })}\n\n`);
+          const sseData: any = { pose_results: posePreview, motion_analysis: motionAnalysis };
+          if (correctionGuide) {
+            sseData.correction_guide = correctionGuide;
+          }
+          res.write(`data: ${JSON.stringify(sseData)}\n\n`);
         }
       } catch (poseError) {
         console.error("Pose detection failed, continuing without:", poseError);
@@ -809,6 +828,9 @@ ${hasPreviousSession ? `
 
 **Your Drill**
 [ONE drill that DIRECTLY addresses the biggest detected problem. Format: "Drill: [Name]. Why: [ties to detected issue]. How: [brief instructions]. Reps: [specific prescription]."]
+${correctionGuide ? `
+**Visual Correction**
+A visual correction guide has been generated showing the ${correctionGuide.joint_label} adjustment needed. The guide shows the current angle (${correctionGuide.current_angle}°) and the target angle (${correctionGuide.target_angle}°) with a green guide line on frame ${correctionGuide.frame_index}. Reference this visual in your Quick Take — tell the athlete to "look at the green guide line on the correction image" to see exactly where their limb should be positioned.` : ''}
 
 ${profileContext}`;
 

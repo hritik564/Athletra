@@ -281,6 +281,10 @@ export default function AnalyzeScreen() {
   const [annotatedFrameMap, setAnnotatedFrameMap] = useState<number[]>([]);
   const [poseAngles, setPoseAngles] = useState<Record<string, number>[]>([]);
   const [motionData, setMotionData] = useState<any>(null);
+  const [correctionGuide, setCorrectionGuide] = useState<{
+    image: string; joint: string; joint_label: string;
+    current_angle: number; target_angle: number; frame_index: number; deviation: number;
+  } | null>(null);
   const [activePhaseFrame, setActivePhaseFrame] = useState<number | null>(null);
   const [previousSessionData, setPreviousSessionData] = useState<SessionRecord | null>(null);
   const [poseDetected, setPoseDetected] = useState(false);
@@ -608,6 +612,12 @@ export default function AnalyzeScreen() {
               if (parsed.motion_analysis) {
                 setMotionData(parsed.motion_analysis);
               }
+              if (parsed.correction_guide) {
+                setCorrectionGuide({
+                  ...parsed.correction_guide,
+                  image: `data:image/jpeg;base64,${parsed.correction_guide.image}`,
+                });
+              }
             }
             if (parsed.content) {
               fullContent += parsed.content;
@@ -708,6 +718,7 @@ export default function AnalyzeScreen() {
     setAnnotatedImages([]);
     setPoseAngles([]);
     setMotionData(null);
+    setCorrectionGuide(null);
     setActivePhaseFrame(null);
     setPreviousSessionData(null);
     setPoseDetected(false);
@@ -1340,6 +1351,64 @@ export default function AnalyzeScreen() {
                 <FormattedText text={analysisResult} Colors={Colors} />
               </View>
             ) : null}
+
+            {correctionGuide && (
+              <View style={[styles.correctionCard, { borderColor: Colors.success + '40' }]}>
+                <View style={styles.correctionHeader}>
+                  <View style={[styles.correctionIconBg, { backgroundColor: Colors.success + '20' }]}>
+                    <Ionicons name="fitness" size={18} color={Colors.success} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.correctionTitle, { color: Colors.success }]}>Correction Guide</Text>
+                    <Text style={[styles.correctionSubtitle, { color: Colors.textSecondary }]}>
+                      {correctionGuide.joint_label} — Frame {correctionGuide.frame_index}
+                    </Text>
+                  </View>
+                </View>
+
+                <Pressable
+                  onPress={() => setPreviewImage(correctionGuide.image)}
+                  style={styles.correctionImageWrap}
+                >
+                  <Image
+                    source={{ uri: correctionGuide.image }}
+                    style={styles.correctionImage}
+                    resizeMode="contain"
+                  />
+                  <View style={[styles.correctionImageBadge, { backgroundColor: Colors.surface + 'E0' }]}>
+                    <Ionicons name="expand" size={14} color={Colors.textSecondary} />
+                    <Text style={[styles.correctionImageBadgeText, { color: Colors.textSecondary }]}>Tap to enlarge</Text>
+                  </View>
+                </Pressable>
+
+                <View style={styles.correctionAngles}>
+                  <View style={[styles.correctionAngleBox, { backgroundColor: Colors.error + '15', borderColor: Colors.error + '30' }]}>
+                    <View style={[styles.correctionDot, { backgroundColor: Colors.error }]} />
+                    <Text style={[styles.correctionAngleLabel, { color: Colors.textSecondary }]}>Current</Text>
+                    <Text style={[styles.correctionAngleValue, { color: Colors.error }]}>
+                      {correctionGuide.current_angle.toFixed(0)}°
+                    </Text>
+                  </View>
+                  <View style={styles.correctionArrow}>
+                    <Ionicons name="arrow-forward" size={20} color={Colors.textMuted} />
+                  </View>
+                  <View style={[styles.correctionAngleBox, { backgroundColor: Colors.success + '15', borderColor: Colors.success + '30' }]}>
+                    <View style={[styles.correctionDot, { backgroundColor: Colors.success }]} />
+                    <Text style={[styles.correctionAngleLabel, { color: Colors.textSecondary }]}>Target</Text>
+                    <Text style={[styles.correctionAngleValue, { color: Colors.success }]}>
+                      {correctionGuide.target_angle.toFixed(0)}°
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={[styles.correctionDeltaBar, { backgroundColor: Colors.warning + '15' }]}>
+                  <Ionicons name="swap-horizontal" size={16} color={Colors.warning} />
+                  <Text style={[styles.correctionDeltaText, { color: Colors.warning }]}>
+                    Adjust by {correctionGuide.deviation.toFixed(0)}° — follow the green guide line
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -1594,6 +1663,46 @@ const createStyles = (C: any) => StyleSheet.create({
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
   },
   trendAnglesSection: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border },
+  correctionCard: {
+    backgroundColor: C.surface, borderRadius: 16, padding: 16, marginTop: 16,
+    borderWidth: 1,
+  },
+  correctionHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12,
+  },
+  correctionIconBg: {
+    width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
+  },
+  correctionTitle: { fontSize: 15, fontFamily: 'Outfit_700Bold' },
+  correctionSubtitle: { fontSize: 12, fontFamily: 'Outfit_400Regular', marginTop: 1 },
+  correctionImageWrap: {
+    borderRadius: 12, overflow: 'hidden', marginBottom: 12, position: 'relative' as const,
+  },
+  correctionImage: {
+    width: '100%' as any, aspectRatio: 16 / 9, borderRadius: 12, backgroundColor: '#000',
+  },
+  correctionImageBadge: {
+    position: 'absolute' as const, bottom: 8, right: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+  },
+  correctionImageBadgeText: { fontSize: 11, fontFamily: 'Outfit_400Regular' },
+  correctionAngles: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10,
+  },
+  correctionAngleBox: {
+    flex: 1, borderRadius: 12, padding: 12, alignItems: 'center' as const,
+    borderWidth: 1,
+  },
+  correctionDot: { width: 8, height: 8, borderRadius: 4, marginBottom: 4 },
+  correctionAngleLabel: { fontSize: 11, fontFamily: 'Outfit_500Medium', marginBottom: 2 },
+  correctionAngleValue: { fontSize: 22, fontFamily: 'Outfit_700Bold' },
+  correctionArrow: { paddingHorizontal: 2 },
+  correctionDeltaBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10,
+  },
+  correctionDeltaText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', flex: 1 },
   previewThumb: { width: 80, height: 80, borderRadius: 10, borderWidth: 1, borderColor: C.border },
   analyzingBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 16,

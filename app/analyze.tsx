@@ -20,9 +20,47 @@ const { width } = Dimensions.get('window');
 
 type AnalyzeMode = 'select' | 'camera' | 'review' | 'analyzing' | 'result';
 
+function ScoreBadge({ label, score, Colors }: { label: string; score: number; Colors: any }) {
+  const color = score >= 8 ? Colors.success : score >= 6 ? Colors.warning : Colors.error;
+  return (
+    <View style={{
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingVertical: 8, paddingHorizontal: 12, backgroundColor: color + '14',
+      borderRadius: 10, marginBottom: 6, borderLeftWidth: 3, borderLeftColor: color,
+    }}>
+      <Text style={{ fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: Colors.text }}>{label}</Text>
+      <Text style={{ fontSize: 16, fontFamily: 'Outfit_700Bold', color }}>{score}/10</Text>
+    </View>
+  );
+}
+
+function parseScoreLine(line: string): { label: string; score: number } | null {
+  const match = line.match(/^[-•]?\s*\**([^:*]+)\**:\s*(\d+(?:\.\d+)?)\s*\/\s*10/i);
+  if (match) return { label: match[1].trim(), score: Math.round(parseFloat(match[2])) };
+  return null;
+}
+
 function FormattedText({ text, Colors }: { text: string; Colors: any }) {
   const paragraphs = text.split(/\n\n+/);
   const elements: React.ReactNode[] = [];
+  let currentSection = '';
+
+  const sectionIcons: Record<string, string> = {
+    'quick take': 'flash',
+    'what you\'re nailing': 'checkmark-circle',
+    'top improvements': 'trending-up',
+    'technique score': 'stats-chart',
+    'your ideal form': 'body',
+    'your drill': 'fitness',
+  };
+
+  const getSectionIcon = (header: string): string => {
+    const lower = header.toLowerCase();
+    for (const [key, icon] of Object.entries(sectionIcons)) {
+      if (lower.includes(key)) return icon;
+    }
+    return 'document-text';
+  };
 
   paragraphs.forEach((paragraph, pIdx) => {
     const lines = paragraph.split('\n');
@@ -33,24 +71,65 @@ function FormattedText({ text, Colors }: { text: string; Colors: any }) {
 
       const isHeader = /^\*\*[^*]+\*\*$/.test(trimmed) || /^#{1,3}\s+/.test(trimmed);
       const isBullet = /^[-•]\s+/.test(trimmed);
+      const isScoreLine = /\d+\s*\/\s*10/.test(trimmed);
 
       if (isHeader) {
         const headerText = trimmed.replace(/^\*\*|\*\*$/g, '').replace(/^#{1,3}\s+/, '');
+        currentSection = headerText.toLowerCase();
+        const iconName = getSectionIcon(headerText);
         elements.push(
-          <Text key={key} style={{
-            fontSize: 16, fontFamily: 'Outfit_700Bold', color: Colors.text,
-            marginTop: pIdx > 0 ? 14 : 0, marginBottom: 4,
-          }}>{headerText}</Text>
+          <View key={key} style={{
+            flexDirection: 'row', alignItems: 'center', gap: 8,
+            marginTop: pIdx > 0 ? 16 : 0, marginBottom: 6,
+          }}>
+            <Ionicons name={iconName as any} size={18} color={Colors.primary} />
+            <Text style={{
+              fontSize: 16, fontFamily: 'Outfit_700Bold', color: Colors.text,
+            }}>{headerText}</Text>
+          </View>
         );
+      } else if (isScoreLine && currentSection.includes('score')) {
+        const parsed = parseScoreLine(trimmed);
+        if (parsed) {
+          elements.push(<ScoreBadge key={key} label={parsed.label} score={parsed.score} Colors={Colors} />);
+        } else {
+          elements.push(
+            <Text key={key} style={{
+              fontSize: 14, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary,
+              lineHeight: 20, marginBottom: 4,
+            }}>{renderBold(trimmed, Colors)}</Text>
+          );
+        }
       } else if (isBullet) {
         const bulletText = trimmed.replace(/^[-•]\s+/, '');
         elements.push(
-          <View key={key} style={{ flexDirection: 'row', marginBottom: 4, paddingLeft: 4 }}>
+          <View key={key} style={{ flexDirection: 'row', marginBottom: 6, paddingLeft: 4 }}>
             <Text style={{ color: Colors.primary, marginRight: 8, fontSize: 14 }}>{'\u2022'}</Text>
             <Text style={{ flex: 1, fontSize: 14, fontFamily: 'Outfit_400Regular', color: Colors.text, lineHeight: 20 }}>
               {renderBold(bulletText, Colors)}
             </Text>
           </View>
+        );
+      } else if (currentSection.includes('quick take')) {
+        elements.push(
+          <Text key={key} style={{
+            fontSize: 15, fontFamily: 'Outfit_500Medium', color: Colors.text,
+            lineHeight: 22, marginBottom: 4,
+          }}>{renderBold(trimmed, Colors)}</Text>
+        );
+      } else if (currentSection.includes('drill')) {
+        elements.push(
+          <Text key={key} style={{
+            fontSize: 14, fontFamily: 'Outfit_500Medium', color: Colors.accent,
+            lineHeight: 20, marginBottom: 4,
+          }}>{renderBold(trimmed, Colors)}</Text>
+        );
+      } else if (currentSection.includes('ideal form')) {
+        elements.push(
+          <Text key={key} style={{
+            fontSize: 14, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary,
+            lineHeight: 20, marginBottom: 4, fontStyle: 'italic',
+          }}>{renderBold(trimmed, Colors)}</Text>
         );
       } else {
         elements.push(

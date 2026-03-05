@@ -12,6 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { fetch } from 'expo/fetch';
 import * as Haptics from 'expo-haptics';
 import { useAudioPlayer } from 'expo-audio';
+import Svg, { Rect, Line, Circle, Path, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { useColors } from '@/contexts/ThemeContext';
 import { useUser } from '@/contexts/UserContext';
 import { getApiUrl } from '@/lib/query-client';
@@ -154,6 +155,56 @@ function renderBold(text: string, Colors: any): React.ReactNode[] {
     }
     return <Text key={i}>{part}</Text>;
   });
+}
+
+function CameraSetupDiagram({ Colors, diagramWidth }: { Colors: any; diagramWidth: number }) {
+  const h = diagramWidth * 0.75;
+  const cx = diagramWidth / 2;
+  const personX = cx + 40;
+  const phoneX = cx - 60;
+
+  return (
+    <Svg width={diagramWidth} height={h} viewBox={`0 0 ${diagramWidth} ${h}`}>
+      <Defs>
+        <RadialGradient id="floorGrad" cx="0.5" cy="0.5" r="0.5">
+          <Stop offset="0" stopColor={Colors.primary} stopOpacity="0.12" />
+          <Stop offset="1" stopColor={Colors.primary} stopOpacity="0.02" />
+        </RadialGradient>
+      </Defs>
+
+      <Rect x={cx - 90} y={h - 30} width={180} height={20} rx={10} fill="url(#floorGrad)" />
+      <Line x1={cx - 90} y1={h - 22} x2={cx + 90} y2={h - 22} stroke={Colors.border} strokeWidth={1} strokeDasharray="4,4" />
+
+      <Circle cx={personX} cy={h * 0.2} r={12} fill={Colors.primary + '30'} stroke={Colors.primary} strokeWidth={1.5} />
+      <Line x1={personX} y1={h * 0.2 + 12} x2={personX} y2={h * 0.55} stroke={Colors.primary} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={personX} y1={h * 0.32} x2={personX - 14} y2={h * 0.44} stroke={Colors.primary} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={personX} y1={h * 0.32} x2={personX + 14} y2={h * 0.44} stroke={Colors.primary} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={personX} y1={h * 0.55} x2={personX - 10} y2={h * 0.72} stroke={Colors.primary} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={personX} y1={h * 0.55} x2={personX + 10} y2={h * 0.72} stroke={Colors.primary} strokeWidth={2} strokeLinecap="round" />
+
+      <Rect x={personX - 22} y={h * 0.12} width={44} height={h * 0.65} rx={6} stroke={Colors.success + '50'} strokeWidth={1} fill={Colors.success + '06'} strokeDasharray="3,3" />
+
+      <Rect x={phoneX - 8} y={h * 0.35} width={16} height={26} rx={3} fill={Colors.accent + '25'} stroke={Colors.accent} strokeWidth={1.5} />
+      <Circle cx={phoneX} cy={h * 0.35 + 6} r={2.5} fill={Colors.accent} />
+      <Rect x={phoneX - 1} y={h * 0.35 + 26} width={2} height={h * 0.72 - h * 0.35 - 26} fill={Colors.textMuted + '60'} />
+      <Line x1={phoneX - 8} y1={h * 0.72} x2={phoneX + 8} y2={h * 0.72} stroke={Colors.textMuted + '60'} strokeWidth={2} />
+
+      <Line x1={phoneX + 8} y1={h * 0.35 + 13} x2={personX - 22} y2={h * 0.16} stroke={Colors.accent + '35'} strokeWidth={1} strokeDasharray="4,3" />
+      <Line x1={phoneX + 8} y1={h * 0.35 + 13} x2={personX - 22} y2={h * 0.72} stroke={Colors.accent + '35'} strokeWidth={1} strokeDasharray="4,3" />
+
+      <Line x1={phoneX - 20} y1={h * 0.35 + 13} x2={phoneX - 20} y2={h * 0.72} stroke={Colors.textMuted + '40'} strokeWidth={1} />
+      <Line x1={phoneX - 24} y1={h * 0.35 + 13} x2={phoneX - 16} y2={h * 0.35 + 13} stroke={Colors.textMuted + '40'} strokeWidth={1} />
+      <Line x1={phoneX - 24} y1={h * 0.72} x2={phoneX - 16} y2={h * 0.72} stroke={Colors.textMuted + '40'} strokeWidth={1} />
+
+      <Line x1={phoneX + 8} y1={h * 0.84} x2={personX - 22} y2={h * 0.84} stroke={Colors.primary + '40'} strokeWidth={1} />
+      <Line x1={phoneX + 8} y1={h * 0.81} x2={phoneX + 8} y2={h * 0.87} stroke={Colors.primary + '40'} strokeWidth={1} />
+      <Line x1={personX - 22} y1={h * 0.81} x2={personX - 22} y2={h * 0.87} stroke={Colors.primary + '40'} strokeWidth={1} />
+
+      <Rect x={phoneX + 14} y={h * 0.8} width={40} height={14} rx={3} fill={Colors.surface} />
+      <Path d={`M${phoneX + 12},${h * 0.84} l-4,-3 l0,6 z`} fill={Colors.primary + '60'} />
+      <Path d={`M${personX - 20},${h * 0.84} l4,-3 l0,6 z`} fill={Colors.primary + '60'} />
+    </Svg>
+  );
 }
 
 export default function AnalyzeScreen() {
@@ -696,15 +747,89 @@ export default function AnalyzeScreen() {
       >
         {mode === 'select' && (
           <>
-            <View style={styles.heroSection}>
-              <LinearGradient colors={[Colors.primary, Colors.accent]} style={styles.heroIcon}>
-                <Ionicons name="videocam" size={36} color="#fff" />
-              </LinearGradient>
-              <Text style={styles.heroTitle}>Capture Your Form</Text>
-              <Text style={styles.heroSubtitle}>
-                Take photos, record video, or upload from your gallery. Our AI will analyze your form and provide sport-specific feedback.
-              </Text>
+            <View style={styles.setupGuide}>
+              <View style={styles.setupHeader}>
+                <View style={styles.setupIconRow}>
+                  <LinearGradient colors={[Colors.primary, Colors.accent]} style={styles.setupBadge}>
+                    <Ionicons name="scan" size={18} color="#fff" />
+                  </LinearGradient>
+                  <Text style={styles.setupLabel}>Setup Guide</Text>
+                </View>
+                <Text style={styles.setupTitle}>Set Up Your Camera</Text>
+                <Text style={styles.setupSubtitle}>
+                  Proper camera placement is essential for accurate AI analysis and pose detection.
+                </Text>
+              </View>
+
+              <View style={styles.diagramCard}>
+                <CameraSetupDiagram Colors={Colors} diagramWidth={width - 80} />
+                <View style={styles.diagramLegend}>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: Colors.accent }]} />
+                    <Text style={styles.legendText}>Camera at waist height</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: Colors.success }]} />
+                    <Text style={styles.legendText}>Full body visible</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: Colors.primary }]} />
+                    <Text style={styles.legendText}>5-8 ft distance</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.setupSteps}>
+                <View style={styles.stepItem}>
+                  <View style={[styles.stepNumber, { backgroundColor: Colors.accent + '18' }]}>
+                    <Text style={[styles.stepNumberText, { color: Colors.accent }]}>1</Text>
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={styles.stepTitle}>Place camera at waist height</Text>
+                    <Text style={styles.stepDesc}>Prop your phone on a table, shelf, or tripod so the lens is roughly at your waist level. This angle captures the most joint data.</Text>
+                  </View>
+                </View>
+
+                <View style={styles.stepItem}>
+                  <View style={[styles.stepNumber, { backgroundColor: Colors.primary + '18' }]}>
+                    <Text style={[styles.stepNumberText, { color: Colors.primary }]}>2</Text>
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={styles.stepTitle}>Stand perpendicular to the camera</Text>
+                    <Text style={styles.stepDesc}>Position yourself sideways to the lens so your movement path runs left-to-right (or right-to-left). Don't face the camera directly.</Text>
+                  </View>
+                </View>
+
+                <View style={styles.stepItem}>
+                  <View style={[styles.stepNumber, { backgroundColor: Colors.success + '18' }]}>
+                    <Text style={[styles.stepNumberText, { color: Colors.success }]}>3</Text>
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={styles.stepTitle}>Keep your full body in frame</Text>
+                    <Text style={styles.stepDesc}>Step back 5-8 feet. Make sure your head, arms, hips, and feet are visible through the entire movement — including at the lowest point.</Text>
+                  </View>
+                </View>
+
+                <View style={styles.stepItem}>
+                  <View style={[styles.stepNumber, { backgroundColor: Colors.warning + '18' }]}>
+                    <Text style={[styles.stepNumberText, { color: Colors.warning }]}>4</Text>
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={styles.stepTitle}>Stable phone, good lighting</Text>
+                    <Text style={styles.stepDesc}>Use a tripod or lean the phone against something sturdy. Avoid backlit scenes — face a window or light source for clear visibility.</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.setupWarning}>
+                <Ionicons name="information-circle" size={18} color={Colors.warning} />
+                <Text style={styles.setupWarningText}>
+                  Without proper setup, our AI can't accurately detect your joints and movement phases. Partial-body or unstable footage leads to incomplete analysis.
+                </Text>
+              </View>
             </View>
+
+            <Text style={styles.captureHeading}>Choose Capture Method</Text>
 
             <View style={styles.optionCards}>
               <Pressable style={styles.mediaOption} onPress={() => setMode('camera')}>
@@ -736,30 +861,6 @@ export default function AnalyzeScreen() {
                   <Text style={styles.mediaOptionDesc}>We'll extract key frames for analysis</Text>
                 </LinearGradient>
               </Pressable>
-            </View>
-
-            <View style={styles.tipsSection}>
-              <Text style={styles.tipsTitle}>Tips for Best Results</Text>
-              <View style={styles.tipRow}>
-                <Ionicons name="sunny" size={16} color={Colors.warning} />
-                <Text style={styles.tipText}>Good lighting shows form details</Text>
-              </View>
-              <View style={styles.tipRow}>
-                <Ionicons name="body" size={16} color={Colors.primary} />
-                <Text style={styles.tipText}>Full body shots work best</Text>
-              </View>
-              <View style={styles.tipRow}>
-                <Ionicons name="layers" size={16} color={Colors.accent} />
-                <Text style={styles.tipText}>Multiple angles give richer feedback</Text>
-              </View>
-              <View style={styles.tipRow}>
-                <Ionicons name="videocam" size={16} color={Colors.success} />
-                <Text style={styles.tipText}>Videos up to 30s — we extract 6 key frames</Text>
-              </View>
-              <View style={styles.tipRow}>
-                <Ionicons name="fitness" size={16} color={Colors.accent} />
-                <Text style={styles.tipText}>AI pose detection measures your joint angles</Text>
-              </View>
             </View>
           </>
         )}
@@ -1111,12 +1212,42 @@ const createStyles = (C: any) => StyleSheet.create({
   },
   headerBackBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 17, fontFamily: 'Outfit_700Bold', color: C.text },
-  heroSection: { alignItems: 'center', marginBottom: 28 },
-  heroIcon: {
-    width: 80, height: 80, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 16,
+  setupGuide: {
+    backgroundColor: C.surface, borderRadius: 20, padding: 20, marginBottom: 24,
+    borderWidth: 1, borderColor: C.border,
   },
-  heroTitle: { fontSize: 22, fontFamily: 'Outfit_700Bold', color: C.text, marginBottom: 8 },
-  heroSubtitle: { fontSize: 14, fontFamily: 'Outfit_400Regular', color: C.textSecondary, textAlign: 'center', lineHeight: 20 },
+  setupHeader: { marginBottom: 16 },
+  setupIconRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  setupBadge: {
+    width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+  },
+  setupLabel: { fontSize: 11, fontFamily: 'Outfit_600SemiBold', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 1 },
+  setupTitle: { fontSize: 20, fontFamily: 'Outfit_700Bold', color: C.text, marginBottom: 6 },
+  setupSubtitle: { fontSize: 13, fontFamily: 'Outfit_400Regular', color: C.textSecondary, lineHeight: 18 },
+  diagramCard: {
+    backgroundColor: C.background, borderRadius: 14, padding: 16, alignItems: 'center',
+    borderWidth: 1, borderColor: C.border, marginBottom: 16,
+  },
+  diagramLegend: { flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 12 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 10, fontFamily: 'Outfit_500Medium', color: C.textMuted },
+  setupSteps: { gap: 14 },
+  stepItem: { flexDirection: 'row', gap: 12 },
+  stepNumber: {
+    width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 2,
+  },
+  stepNumberText: { fontSize: 13, fontFamily: 'Outfit_700Bold' },
+  stepContent: { flex: 1, gap: 2 },
+  stepTitle: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: C.text },
+  stepDesc: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: C.textSecondary, lineHeight: 17 },
+  setupWarning: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 16,
+    backgroundColor: C.warning + '0C', borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: C.warning + '20',
+  },
+  setupWarningText: { flex: 1, fontSize: 12, fontFamily: 'Outfit_400Regular', color: C.warning, lineHeight: 17 },
+  captureHeading: { fontSize: 16, fontFamily: 'Outfit_700Bold', color: C.text, marginBottom: 12 },
   optionCards: { gap: 12, marginBottom: 24 },
   mediaOption: { borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: C.border },
   mediaOptionGradient: { padding: 20, alignItems: 'center', gap: 8 },
@@ -1126,13 +1257,6 @@ const createStyles = (C: any) => StyleSheet.create({
   },
   mediaOptionTitle: { fontSize: 16, fontFamily: 'Outfit_700Bold', color: C.text },
   mediaOptionDesc: { fontSize: 13, fontFamily: 'Outfit_400Regular', color: C.textSecondary },
-  tipsSection: {
-    backgroundColor: C.surface, borderRadius: 16, padding: 16, gap: 10,
-    borderWidth: 1, borderColor: C.border,
-  },
-  tipsTitle: { fontSize: 14, fontFamily: 'Outfit_700Bold', color: C.text, marginBottom: 4 },
-  tipRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  tipText: { fontSize: 13, fontFamily: 'Outfit_400Regular', color: C.textSecondary },
   sectionTitle: { fontSize: 16, fontFamily: 'Outfit_700Bold', color: C.text, marginBottom: 12 },
   imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
   imageThumb: {

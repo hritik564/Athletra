@@ -664,18 +664,22 @@ export default function AnalyzeScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       });
-      if (!response.ok) throw new Error('TTS failed');
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        throw new Error(`TTS failed: ${response.status} ${errBody}`);
+      }
       const data = await response.json();
+      const mime = data.format === 'mp3' ? 'audio/mpeg' : 'audio/wav';
       if (data.audio) {
         if (Platform.OS === 'web') {
-          const blobUri = base64ToBlobUri(data.audio, 'audio/wav');
+          const blobUri = base64ToBlobUri(data.audio, mime);
           setAudioUri(blobUri);
         } else {
-          setAudioUri(`data:audio/wav;base64,${data.audio}`);
+          setAudioUri(`data:${mime};base64,${data.audio}`);
         }
       }
-    } catch (e) {
-      console.error('TTS error:', e);
+    } catch (e: any) {
+      console.error('TTS error:', e?.message || e);
     } finally {
       setIsGeneratingAudio(false);
     }

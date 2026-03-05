@@ -368,7 +368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const audioResponse = await openai.chat.completions.create({
         model: "gpt-audio",
         modalities: ["text", "audio"],
-        audio: { voice: "nova", format: "wav" },
+        audio: { voice: "nova", format: "mp3" },
         messages: [
           { role: "system", content: "You are a text-to-speech assistant. Repeat the following text verbatim with natural, warm, encouraging intonation." },
           { role: "user", content: `Repeat this verbatim: ${assistantText}` },
@@ -380,6 +380,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         text: assistantText,
         audio: audioData,
+        format: "mp3",
       });
     } catch (error) {
       console.error("Voice chat error:", error);
@@ -428,12 +429,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .replace(/```[\s\S]*?```/g, "")
         .trim();
 
-      const truncated = cleanText.length > 3000 ? cleanText.slice(0, 3000) + "..." : cleanText;
+      const truncated = cleanText.length > 4096 ? cleanText.slice(0, 4096) + "..." : cleanText;
 
       const audioResponse = await openai.chat.completions.create({
         model: "gpt-audio",
         modalities: ["text", "audio"],
-        audio: { voice: "nova", format: "wav" },
+        audio: { voice: "nova", format: "mp3" },
         messages: [
           { role: "system", content: "You are a text-to-speech assistant. Read the following coaching feedback aloud with natural, warm, encouraging intonation. Read it naturally as spoken language — skip formatting artifacts." },
           { role: "user", content: `Read this aloud naturally: ${truncated}` },
@@ -442,7 +443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const audioData = (audioResponse.choices[0]?.message as any)?.audio?.data ?? "";
 
-      res.json({ audio: audioData });
+      res.json({ audio: audioData, format: "mp3" });
     } catch (error) {
       console.error("TTS error:", error);
       res.status(500).json({ error: "Failed to generate speech" });

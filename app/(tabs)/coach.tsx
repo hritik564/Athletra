@@ -442,7 +442,8 @@ export default function CoachScreen() {
 
       let audioUri = '';
       if (voiceData.audio) {
-        audioUri = `data:audio/wav;base64,${voiceData.audio}`;
+        const mime = voiceData.format === 'mp3' ? 'audio/mpeg' : 'audio/wav';
+        audioUri = `data:${mime};base64,${voiceData.audio}`;
       }
 
       const assistantMessage: Message = {

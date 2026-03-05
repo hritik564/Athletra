@@ -43,7 +43,7 @@ All data stored in UserProfile via AsyncStorage and passed to AI coach for perso
   - Audio transcription (`/api/coach/transcribe` - speech-to-text)
   - Technique analysis (`/api/coach/analyze-technique` - runs MediaPipe pose detection first, then GPT-4o vision with skeleton-annotated images + joint angle data, streaming SSE)
   - Pose detection (`/api/coach/pose-detect` - standalone MediaPipe pose landmarker, returns 33 body landmarks, joint angles, symmetry data, and annotated images)
-  - Video frame extraction (`/api/coach/extract-frames` - ffmpeg extracts 6 evenly-spaced key frames from uploaded video)
+  - Video frame extraction (`/api/coach/extract-frames` - motion-based frame selection: extracts ~20 candidate frames, runs pose detection to score motion between consecutive frames, selects 6 frames capturing the highest angle changes. Falls back to evenly-spaced if pose detection fails)
   - Text-to-speech (`/api/coach/tts` - converts analysis text to spoken audio via gpt-audio model with nova voice, returns base64 WAV)
   - Meal analysis from photos/descriptions
   - Workout plan generation
@@ -86,5 +86,7 @@ Located in `server/replit_integrations/`, these are pre-built modules:
 - **PostgreSQL**: Required for server-side data (conversations, messages, users). Connection via `DATABASE_URL` environment variable
 - **OpenAI API** (via Replit AI Integrations): Powers the AI coach, meal analysis, workout generation, and voice features. Environment variables: `AI_INTEGRATIONS_OPENAI_API_KEY`, `AI_INTEGRATIONS_OPENAI_BASE_URL`
 - **ffmpeg**: Required on the server for audio format conversion and video frame extraction
-- **MediaPipe** (Python): Google's pose detection library runs server-side via `server/pose_detection.py`. Uses the PoseLandmarker heavy model (`server/models/pose_landmarker_heavy.task`) to detect 33 body landmarks, calculate joint angles, measure body symmetry, and generate skeleton-annotated images. Called from Node.js via `child_process.spawn`. Requires Python 3.11 + mediapipe + opencv-python-headless + numpy pip packages + xorg.libxcb, xorg.libX11, libGL system dependencies
+- **MediaPipe** (Python): Google's pose detection library runs server-side via `server/pose_detection.py`. Uses the PoseLandmarker heavy model (`server/models/pose_landmarker_heavy.task`) to detect 33 body landmarks, calculate joint angles, measure body symmetry, and generate skeleton-annotated images. Two-pass annotation: first pass detects poses and computes motion analysis, second pass re-annotates with red circles/warning triangles on error joints (asymmetries, ROM flags). Called from Node.js via `child_process.spawn`. Requires Python 3.11 + mediapipe + opencv-python-headless + numpy pip packages + xorg.libxcb, xorg.libX11, libGL system dependencies
+- **Session History**: Technique analysis results (scores, angles, sport) are stored in AsyncStorage under `technique_analysis_history` key. Up to 20 sessions retained. Previous session data is sent to the AI for trend comparison and progress tracking. The UI shows a "Session Comparison" card with score deltas and angle changes when previous data exists
+- **AI Coaching Format**: Condensed "Problem/Impact/Fix" format for improvements. Sport-specific movement phase names (e.g., skating: Setup→Load→Push→Extension→Recovery). Interactive clickable phase pills that open the relevant annotated frame and show joint angle details
 - **Replit Environment**: Uses `REPLIT_DEV_DOMAIN`, `REPLIT_DOMAINS`, `REPLIT_INTERNAL_APP_DOMAIN` for CORS and URL configuration

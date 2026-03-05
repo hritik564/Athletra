@@ -67,7 +67,16 @@ def calc_angle(a, b, c):
     return round(math.degrees(math.acos(np.clip(cos_val, -1, 1))), 1)
 
 
-def analyze_image(img_b64, landmarker):
+JOINT_LANDMARK_MAP = {
+    "left_elbow": 13, "right_elbow": 14,
+    "left_shoulder": 11, "right_shoulder": 12,
+    "left_hip": 23, "right_hip": 24,
+    "left_knee": 25, "right_knee": 26,
+    "left_ankle": 27, "right_ankle": 28,
+}
+
+
+def analyze_image(img_b64, landmarker, error_joints=None):
     raw = base64.b64decode(img_b64)
     arr = np.frombuffer(raw, np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
@@ -124,16 +133,32 @@ def analyze_image(img_b64, landmarker):
         connection_spec
     )
 
+    err_set = set(error_joints) if error_joints else set()
+
     for angle_name, a_idx, b_idx, c_idx in ANGLE_DEFS:
         if angle_name in angles and b_idx < len(pose_lms):
             px = int(pose_lms[b_idx].x * w)
             py = int(pose_lms[b_idx].y * h)
+            is_error = angle_name in err_set
+            text_color = (0, 0, 255) if is_error else (255, 255, 255)
+
+            if is_error:
+                cv2.circle(img, (px, py), 14, (0, 0, 255), 3, cv2.LINE_AA)
+                tri_pts = np.array([
+                    [px - 7, py - 20],
+                    [px + 7, py - 20],
+                    [px, py - 30],
+                ], np.int32)
+                cv2.fillPoly(img, [tri_pts], (0, 0, 255))
+                cv2.putText(img, "!", (px - 3, py - 21),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1, cv2.LINE_AA)
+
             cv2.putText(img, f"{angles[angle_name]:.0f}", (px + 8, py - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, text_color, 1, cv2.LINE_AA)
             cv2.putText(img, f"{angles[angle_name]:.0f}", (px + 7, py - 9),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 2, cv2.LINE_AA)
             cv2.putText(img, f"{angles[angle_name]:.0f}", (px + 8, py - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, text_color, 1, cv2.LINE_AA)
 
     _, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])
     annotated_b64 = base64.b64encode(buf).decode('utf-8')
@@ -143,7 +168,8 @@ def analyze_image(img_b64, landmarker):
         "landmarks": landmarks,
         "angles": angles,
         "symmetry": symmetry,
-        "annotated_image": annotated_b64
+        "annotated_image": annotated_b64,
+        "error_joints": list(err_set) if err_set else []
     }
 
 
@@ -328,6 +354,27 @@ def detect_movement_phases(detected_frames, angle_timelines, deltas):
     return phases
 
 
+def find_error_joints(motion_analysis):
+    if not motion_analysis or motion_analysis.get("error"):
+        return set()
+
+    error_joints = set()
+
+    asymmetries = motion_analysis.get("asymmetries", [])
+    for a in asymmetries:
+        if a.get("flagged"):
+            error_joints.add(a.get("left_joint", ""))
+            error_joints.add(a.get("right_joint", ""))
+
+    rom = motion_analysis.get("range_of_motion", {})
+    for joint, r in rom.items():
+        if r.get("flag") and r["flag"] != "normal":
+            error_joints.add(joint)
+
+    error_joints.discard("")
+    return error_joints
+
+
 def main():
     try:
         input_data = json.loads(sys.stdin.read())
@@ -355,12 +402,16 @@ def main():
         sys.stdout.flush()
         return
 
+    clean_images = []
+    for img_b64 in images:
+        if img_b64.startswith("data:"):
+            img_b64 = img_b64.split(",", 1)[1]
+        clean_images.append(img_b64)
+
     results = []
     with landmarker:
-        for img_b64 in images:
+        for img_b64 in clean_images:
             try:
-                if img_b64.startswith("data:"):
-                    img_b64 = img_b64.split(",", 1)[1]
                 r = analyze_image(img_b64, landmarker)
                 results.append(r)
             except Exception as e:
@@ -372,6 +423,19 @@ def main():
             motion_analysis = compute_motion_analysis(results)
         except Exception as e:
             motion_analysis = {"error": str(e)}
+
+    err_joints = find_error_joints(motion_analysis)
+
+    if err_joints:
+        with vision.PoseLandmarker.create_from_options(options) as landmarker2:
+            for i, img_b64 in enumerate(clean_images):
+                if results[i].get("detected"):
+                    try:
+                        r2 = analyze_image(img_b64, landmarker2, error_joints=list(err_joints))
+                        results[i]["annotated_image"] = r2.get("annotated_image", results[i].get("annotated_image"))
+                        results[i]["error_joints"] = list(err_joints)
+                    except Exception:
+                        pass
 
     output = json.dumps({
         "results": results,

@@ -16,6 +16,7 @@ interface PoseResult {
     hips_aligned: boolean;
   };
   annotated_image?: string;
+  error_joints?: string[];
 }
 
 interface MotionDelta {
@@ -522,7 +523,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const videoBuffer = Buffer.from(video, "base64");
       fs.writeFileSync(videoPath, videoBuffer);
 
-      const frameCount = 6;
+      const targetFrames = 6;
+      const sampleDensity = 20;
       try {
         const durationOutput = execSync(
           `ffprobe -v error -show_entries format=duration -of csv=p=0 "${videoPath}"`,
@@ -530,11 +532,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ).trim();
         const duration = parseFloat(durationOutput) || 10;
 
-        const interval = Math.max(duration / (frameCount + 1), 0.5);
+        const sampleCount = Math.min(sampleDensity, Math.max(targetFrames, Math.floor(duration * 3)));
+        const sampleInterval = Math.max(duration / (sampleCount + 1), 0.1);
 
-        for (let i = 1; i <= frameCount; i++) {
-          const timestamp = interval * i;
-          const outputPath = path.join(tmpDir, `frame_${i}.jpg`);
+        for (let i = 1; i <= sampleCount; i++) {
+          const timestamp = sampleInterval * i;
+          const outputPath = path.join(tmpDir, `sample_${i}.jpg`);
           try {
             execSync(
               `ffmpeg -ss ${timestamp.toFixed(2)} -i "${videoPath}" -vframes 1 -q:v 3 -vf "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease" "${outputPath}" -y`,
@@ -543,12 +546,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } catch {}
         }
 
-        const frames: string[] = [];
-        for (let i = 1; i <= frameCount; i++) {
-          const framePath = path.join(tmpDir, `frame_${i}.jpg`);
+        const sampleFrames: { index: number; b64: string; timestamp: number }[] = [];
+        for (let i = 1; i <= sampleCount; i++) {
+          const framePath = path.join(tmpDir, `sample_${i}.jpg`);
           if (fs.existsSync(framePath)) {
             const frameBuffer = fs.readFileSync(framePath);
-            frames.push(frameBuffer.toString('base64'));
+            sampleFrames.push({
+              index: i,
+              b64: frameBuffer.toString('base64'),
+              timestamp: sampleInterval * i,
+            });
+          }
+        }
+
+        let selectedFrames: typeof sampleFrames;
+
+        if (sampleFrames.length <= targetFrames) {
+          selectedFrames = sampleFrames;
+        } else {
+          try {
+            const sampleImages = sampleFrames.map(f => f.b64);
+            const poseOutput = await runPoseDetection(sampleImages);
+            const poseResults = poseOutput.results;
+
+            const motionScores: { idx: number; score: number }[] = [];
+            for (let i = 1; i < poseResults.length; i++) {
+              const prev = poseResults[i - 1];
+              const curr = poseResults[i];
+              let score = 0;
+              if (prev?.detected && curr?.detected && prev.angles && curr.angles) {
+                for (const joint of Object.keys(curr.angles)) {
+                  if (prev.angles[joint] !== undefined) {
+                    score += Math.abs(curr.angles[joint] - prev.angles[joint]);
+                  }
+                }
+              }
+              motionScores.push({ idx: i, score });
+            }
+
+            motionScores.sort((a, b) => b.score - a.score);
+
+            const selectedIndices = new Set<number>();
+            selectedIndices.add(0);
+            selectedIndices.add(sampleFrames.length - 1);
+
+            for (const ms of motionScores) {
+              if (selectedIndices.size >= targetFrames) break;
+              let tooClose = false;
+              for (const si of selectedIndices) {
+                if (Math.abs(ms.idx - si) < 2) {
+                  tooClose = true;
+                  break;
+                }
+              }
+              if (!tooClose) {
+                selectedIndices.add(ms.idx);
+              }
+            }
+
+            while (selectedIndices.size < targetFrames && selectedIndices.size < sampleFrames.length) {
+              for (let i = 0; i < sampleFrames.length && selectedIndices.size < targetFrames; i++) {
+                if (!selectedIndices.has(i)) {
+                  selectedIndices.add(i);
+                }
+              }
+            }
+
+            const sortedIndices = Array.from(selectedIndices).sort((a, b) => a - b);
+            selectedFrames = sortedIndices.map(i => sampleFrames[i]);
+          } catch (poseErr) {
+            console.error("Motion-based selection failed, falling back to evenly spaced:", poseErr);
+            const step = (sampleFrames.length - 1) / (targetFrames - 1);
+            selectedFrames = [];
+            for (let i = 0; i < targetFrames; i++) {
+              selectedFrames.push(sampleFrames[Math.round(step * i)]);
+            }
           }
         }
 
@@ -556,11 +628,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {}
 
+        const frames = selectedFrames.map(f => f.b64);
+
         if (frames.length === 0) {
           return res.status(400).json({ error: "Could not extract frames from video" });
         }
 
-        res.json({ frames, count: frames.length });
+        const method = sampleFrames.length <= targetFrames ? 'all' : 'motion';
+        res.json({ frames, count: frames.length, method });
       } catch (ffmpegError) {
         try {
           fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -600,7 +675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/coach/analyze-technique", express.json({ limit: "50mb" }), async (req: Request, res: Response) => {
     try {
-      const { images, userProfile, sport, description } = req.body;
+      const { images, userProfile, sport, description, previousSession } = req.body;
 
       if (!images || !Array.isArray(images) || images.length === 0) {
         return res.status(400).json({ error: "At least one image is required" });
@@ -663,64 +738,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const hasPoseData = poseDataText.length > 0;
       const hasMotionData = motionAnalysis && !motionAnalysis.error && motionAnalysis.phases && motionAnalysis.phases.length > 0;
+      const hasPreviousSession = previousSession && previousSession.scores;
 
-      const systemPrompt = `You are VitalCoach — a world-class personal ${sportContext} coach. You've trained athletes at every level and you know how to give feedback that actually sticks. You speak like a real coach on the field: direct, warm, motivating, and never robotic.
+      const previousSessionText = hasPreviousSession ? `
+PREVIOUS SESSION DATA (for trend comparison):
+${previousSession.date ? `Date: ${previousSession.date}` : ''}
+${previousSession.scores ? `Previous scores: ${JSON.stringify(previousSession.scores)}` : ''}
+${previousSession.angles ? `Previous key angles: ${JSON.stringify(previousSession.angles)}` : ''}
+Compare the current analysis against these previous values. Note improvements and regressions with specific deltas.` : '';
 
-VOICE & TONE:
-- Talk like you're standing right next to the athlete, watching their form live
-- Keep sentences short and punchy — no long paragraphs
-- Use "you" and "your" — make it personal
-- Be encouraging first, then constructive — athletes need confidence to improve
-- Use sport-specific terminology natural to ${sportContext}
-- Sound like a supportive expert, not a textbook
+      const systemPrompt = `You are VitalCoach — a world-class personal ${sportContext} coach standing right next to the athlete. Be CONCISE. No filler, no paragraphs. Every sentence must earn its place.
+
+VOICE: Direct, warm, punchy. Use sport-specific ${sportContext} terminology. Talk in short lines — never more than 2 sentences per point.
+
+FORMAT RULES:
+- For problems, use this exact format: "Problem: [issue] (Measured: X°, Ideal: Y°). Impact: [consequence]. Fix: [one-line correction]."
+- For positives, keep to one line with the data point.
+- Never write paragraphs. Use bullets and short statements only.
 ${hasPoseData ? `
 BIOMECHANICAL DATA:
-You have precise MediaPipe pose detection data with joint angles (degrees) and body symmetry measurements. The annotated images show skeleton overlays with angle labels.${hasMotionData ? `
+You have MediaPipe pose detection data with joint angles and symmetry measurements. Annotated images show skeleton overlays. Joints marked with red circles and warning triangles have detected issues — reference these visual markers in your feedback.${hasMotionData ? `
 
-MOTION ANALYSIS DATA:
-You also have frame-to-frame motion analysis including:
-- MOVEMENT PHASES: Each frame is classified as Setup, Loading/Coiling, Drive/Extension, Hold/Follow-through, or Transition based on joint angle patterns
-- ANGLE DELTAS: Exact angle changes between consecutive frames for every tracked joint (e.g., "left knee went from 145° to 98° = -47° flexion")
-- RANGE OF MOTION: Min/max angles and total ROM for each joint across all frames, compared against reference ranges. Flagged joints indicate limited ROM or values outside safe ranges
-- ASYMMETRIES: Left vs right differences for paired joints. Flagged when average difference exceeds 8°
+MOTION ANALYSIS:
+You have phase-based motion data. Use STANDARDIZED PHASE NAMES for ${sportContext}:
+- For skating: Setup → Load → Push → Extension → Recovery
+- For cricket: Stance → Backswing → Drive → Follow-through
+- For basketball: Set → Load → Release → Follow-through
+- For weightlifting: Setup → Pull → Catch → Recovery
+- For running: Stance → Push-off → Flight → Landing
+- For general: Setup → Load → Drive → Follow-through → Recovery
+Map the detected phases to these sport-specific names in your output.
 
-USE ALL THIS DATA. Your coaching should be PHASE-BASED:
-- Tell the athlete what's happening in each phase of their movement
-- Reference specific angle deltas ("your knee flexed 47° during the loading phase — aim for 55-60° for more power")
-- Call out ROM issues ("your elbow only moved through 35° — you need at least 60° of extension for a full follow-through")
-- Flag asymmetries with actionable fixes ("your left shoulder is 12° higher than your right in the drive phase — focus on leveling your shoulders")
+Data available: frame-to-frame angle deltas, ROM with reference ranges, L/R asymmetries.
+USE CONCISE FORMAT for each issue:
+- "Problem: Hip imbalance (L: 50°, R: 70°). Impact: Reduced power transfer. Fix: Keep hips level during drive."
+- "Problem: Limited knee ROM (35° measured, 60°+ needed). Impact: Shallow squat. Fix: Wall-sit holds, 30s x 3."
 ` : `
-USE this data — cite specific angles vs ideal ranges for ${sportContext}. This is your edge as a coach.`}
-` : ''}
-RESPONSE STRUCTURE (follow this exactly):
+USE this data — cite specific angles vs ideal ranges for ${sportContext}.`}
+` : ''}${previousSessionText}
+RESPONSE STRUCTURE (follow exactly):
 
 **Quick Take**
-[2-3 sentences max. Lead with what impressed you, then the #1 thing to work on. Set the tone — energetic, like a coach's first reaction.]
+[1-2 sentences. What impressed you + the #1 fix. Energetic, like a coach's first reaction.]
 ${hasMotionData ? `
 **Movement Breakdown**
-[Describe each phase of the movement you see across the frames. Reference the detected phases and what the athlete's body is doing in each one. Be specific about angles and transitions.]
+[One line per phase. Use sport-specific phase names. Format: "Phase Name (Frame X): [what's happening]. [angle data]." Keep it to 3-5 lines max.]
 ` : ''}
 **What You're Nailing**
-- [2-3 specific things done well, with brief sport-specific detail]
-- [Reference ${hasPoseData ? 'measured angles and positions' : 'visible positioning'}]
+- [2-3 bullet points, one line each, with specific ${hasPoseData ? 'angle data' : 'observations'}]
 
 **Top Improvements**
-- [2-3 sport-specific corrections ranked by impact]
-- [Each one: what's wrong → what it should look like → why it matters for ${sportContext}]
-${hasPoseData ? '- [Reference measured angles vs ideal angles for the sport]' : ''}
-${hasMotionData ? '- [Reference angle deltas, ROM data, and asymmetries where relevant]' : ''}
-
+- [2-3 bullets using: "Problem: [X]. Impact: [Y]. Fix: [Z]." format]
+- [Each must reference ${hasPoseData ? 'measured angles vs ideal' : 'visible positioning'}]
+${hasMotionData ? '- [Reference asymmetries and ROM flags where detected]' : ''}
+${hasPreviousSession ? `
+**Progress Update**
+- [Compare current scores to previous: "Today: X/10 (Last: Y/10, ${'+' || '-'}Z)"]
+- [Note specific angle improvements/regressions with deltas: "Knee flexion: 85° → 92° (+7° improvement)"]
+- [1 line summary: improving, regressing, or plateauing]
+` : ''}
 **Technique Score**
 - Overall: X/10
-- [Sport-specific dimension 1]: X/10
-- [Sport-specific dimension 2]: X/10
-(Choose dimensions that matter most for ${sportContext} — e.g., for basketball: Shooting Form, Balance; for cricket: Stance, Bat Path; for skating: Edge Control, Posture)
+- [Sport-specific dimension 1 for ${sportContext}]: X/10
+- [Sport-specific dimension 2 for ${sportContext}]: X/10
+- [Sport-specific dimension 3 for ${sportContext}]: X/10
 
 **Your Ideal Form**
-[Briefly describe what the ideal technique looks like for this specific movement in ${sportContext}. Paint a picture the athlete can visualize — "Your front elbow should be at 90°, bat face pointing to cover..." Help them see the target form in their mind.]
+[2-3 lines max. Paint the target form for this specific ${sportContext} movement with specific angles. Sport-specific visualization the athlete can picture.]
 
 **Your Drill**
-[ONE specific, actionable drill tailored to ${sportContext} that addresses the biggest improvement area. Include reps/duration. Make it something they can do today.]
+[ONE drill that DIRECTLY addresses the biggest detected problem. Format: "Drill: [Name]. Why: [ties to detected issue]. How: [brief instructions]. Reps: [specific prescription]."]
 
 ${profileContext}`;
 

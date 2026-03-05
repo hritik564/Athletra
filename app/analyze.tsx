@@ -13,9 +13,65 @@ import { fetch } from 'expo/fetch';
 import * as Haptics from 'expo-haptics';
 import { useAudioPlayer } from 'expo-audio';
 import Svg, { Rect, Line, Circle, Path, Defs, RadialGradient, Stop } from 'react-native-svg';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColors } from '@/contexts/ThemeContext';
 import { useUser } from '@/contexts/UserContext';
 import { getApiUrl } from '@/lib/query-client';
+
+const SESSION_HISTORY_KEY = 'technique_analysis_history';
+
+interface SessionRecord {
+  id: string;
+  date: string;
+  sport: string;
+  scores: Record<string, number>;
+  angles: Record<string, number>;
+  result: string;
+}
+
+async function loadPreviousSession(sport: string): Promise<SessionRecord | null> {
+  try {
+    const raw = await AsyncStorage.getItem(SESSION_HISTORY_KEY);
+    if (!raw) return null;
+    const sessions: SessionRecord[] = JSON.parse(raw);
+    const match = sessions
+      .filter(s => s.sport.toLowerCase() === sport.toLowerCase())
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    return match || null;
+  } catch { return null; }
+}
+
+async function saveSession(record: SessionRecord): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(SESSION_HISTORY_KEY);
+    const sessions: SessionRecord[] = raw ? JSON.parse(raw) : [];
+    sessions.unshift(record);
+    const trimmed = sessions.slice(0, 20);
+    await AsyncStorage.setItem(SESSION_HISTORY_KEY, JSON.stringify(trimmed));
+  } catch {}
+}
+
+function parseScoresFromResult(text: string): Record<string, number> {
+  const scores: Record<string, number> = {};
+  const lines = text.split('\n');
+  for (const line of lines) {
+    const match = line.match(/^[-•]?\s*\**([^:*]+)\**:\s*(\d+(?:\.\d+)?)\s*\/\s*10/i);
+    if (match) {
+      scores[match[1].trim()] = parseFloat(match[2]);
+    }
+  }
+  return scores;
+}
+
+function parseFirstFrameAngles(poseAngles: Record<string, number>[]): Record<string, number> {
+  if (!poseAngles.length) return {};
+  const first = poseAngles[0];
+  const result: Record<string, number> = {};
+  for (const [k, v] of Object.entries(first)) {
+    if (typeof v === 'number') result[k] = v;
+  }
+  return result;
+}
 
 const { width } = Dimensions.get('window');
 
@@ -51,6 +107,7 @@ function FormattedText({ text, Colors }: { text: string; Colors: any }) {
     'movement breakdown': 'pulse',
     'what you\'re nailing': 'checkmark-circle',
     'top improvements': 'trending-up',
+    'progress update': 'analytics',
     'technique score': 'stats-chart',
     'your ideal form': 'body',
     'your drill': 'fitness',
@@ -221,8 +278,11 @@ export default function AnalyzeScreen() {
   const [analysisResult, setAnalysisResult] = useState('');
   const [analysisStatus, setAnalysisStatus] = useState('');
   const [annotatedImages, setAnnotatedImages] = useState<string[]>([]);
+  const [annotatedFrameMap, setAnnotatedFrameMap] = useState<number[]>([]);
   const [poseAngles, setPoseAngles] = useState<Record<string, number>[]>([]);
   const [motionData, setMotionData] = useState<any>(null);
+  const [activePhaseFrame, setActivePhaseFrame] = useState<number | null>(null);
+  const [previousSessionData, setPreviousSessionData] = useState<SessionRecord | null>(null);
   const [poseDetected, setPoseDetected] = useState(false);
   const [poseMessage, setPoseMessage] = useState('');
   const [isDetectingPose, setIsDetectingPose] = useState(false);
@@ -471,7 +531,12 @@ export default function AnalyzeScreen() {
     setAnalysisStatus('Detecting body pose...');
     setAnnotatedImages([]);
     setPoseAngles([]);
+    setActivePhaseFrame(null);
     setIsStreaming(true);
+
+    const sportName = profile.sport || 'general';
+    const prevSession = await loadPreviousSession(sportName);
+    setPreviousSessionData(prevSession);
 
     try {
       const baseUrl = getApiUrl();
@@ -481,10 +546,15 @@ export default function AnalyzeScreen() {
         body: JSON.stringify({
           images: selectedImages,
           userProfile: profile,
-          sport: profile.sport || '',
+          sport: sportName,
           description: videoUri
             ? `${description ? description + '. ' : ''}These frames were extracted from a video recording of my technique.`
             : description,
+          previousSession: prevSession ? {
+            date: prevSession.date,
+            scores: prevSession.scores,
+            angles: prevSession.angles,
+          } : undefined,
         }),
       });
 
@@ -521,10 +591,16 @@ export default function AnalyzeScreen() {
               setAnalysisStatus(parsed.status);
             }
             if (parsed.pose_results) {
-              const imgs = parsed.pose_results
-                .filter((r: any) => r.annotated_image)
-                .map((r: any) => `data:image/jpeg;base64,${r.annotated_image}`);
+              const imgs: string[] = [];
+              const frameMap: number[] = [];
+              parsed.pose_results.forEach((r: any, idx: number) => {
+                if (r.annotated_image) {
+                  imgs.push(`data:image/jpeg;base64,${r.annotated_image}`);
+                  frameMap.push(idx + 1);
+                }
+              });
               setAnnotatedImages(imgs);
+              setAnnotatedFrameMap(frameMap);
               const angles = parsed.pose_results
                 .filter((r: any) => r.angles)
                 .map((r: any) => r.angles);
@@ -544,6 +620,19 @@ export default function AnalyzeScreen() {
 
       setMode('result');
       generateSpeech(fullContent);
+
+      const sessionScores = parseScoresFromResult(fullContent);
+      if (Object.keys(sessionScores).length > 0) {
+        const sessionAngles = parseFirstFrameAngles(poseAngles);
+        saveSession({
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          date: new Date().toISOString(),
+          sport: profile.sport || 'general',
+          scores: sessionScores,
+          angles: sessionAngles,
+          result: fullContent.slice(0, 500),
+        });
+      }
     } catch (error) {
       console.error('Analysis error:', error);
       setAnalysisResult('Failed to analyze. Please check your connection and try again.');
@@ -615,6 +704,8 @@ export default function AnalyzeScreen() {
     setAnnotatedImages([]);
     setPoseAngles([]);
     setMotionData(null);
+    setActivePhaseFrame(null);
+    setPreviousSessionData(null);
     setPoseDetected(false);
     setPoseMessage('');
     setShowAnnotated(false);
@@ -1035,28 +1126,68 @@ export default function AnalyzeScreen() {
                         <View style={styles.motionSectionHeader}>
                           <Ionicons name="pulse" size={14} color={Colors.primary} />
                           <Text style={styles.motionSectionTitle}>Movement Phases</Text>
+                          <Text style={{ fontSize: 10, fontFamily: 'Outfit_400Regular', color: Colors.textMuted, marginLeft: 4 }}>Tap to inspect</Text>
                         </View>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                          {motionData.phases.map((phase: any, i: number) => (
-                            <View key={i} style={[styles.phasePill, {
-                              backgroundColor: phase.phase_type === 'drive' ? Colors.success + '18'
-                                : phase.phase_type === 'loading' ? Colors.warning + '18'
-                                : phase.phase_type === 'setup' ? Colors.primary + '18'
-                                : Colors.textMuted + '18',
-                              borderColor: phase.phase_type === 'drive' ? Colors.success + '40'
-                                : phase.phase_type === 'loading' ? Colors.warning + '40'
-                                : phase.phase_type === 'setup' ? Colors.primary + '40'
-                                : Colors.textMuted + '40',
-                            }]}>
-                              <Text style={[styles.phaseFrame, { color: Colors.textSecondary }]}>F{phase.frame}</Text>
-                              <Text style={[styles.phaseLabel, {
-                                color: phase.phase_type === 'drive' ? Colors.success
-                                  : phase.phase_type === 'loading' ? Colors.warning
-                                  : Colors.primary,
-                              }]}>{phase.phase_label.split(' / ')[0]}</Text>
-                            </View>
-                          ))}
+                          {motionData.phases.map((phase: any, i: number) => {
+                            const isActive = activePhaseFrame === phase.frame;
+                            const phaseColor = phase.phase_type === 'drive' ? Colors.success
+                              : phase.phase_type === 'loading' ? Colors.warning
+                              : phase.phase_type === 'setup' ? Colors.primary
+                              : Colors.textMuted;
+                            return (
+                              <Pressable
+                                key={i}
+                                onPress={() => {
+                                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                  setActivePhaseFrame(isActive ? null : phase.frame);
+                                  if (!isActive) {
+                                    const mapIdx = annotatedFrameMap.indexOf(phase.frame);
+                                    const img = mapIdx >= 0 ? annotatedImages[mapIdx] : annotatedImages[Math.min(i, annotatedImages.length - 1)];
+                                    if (img) setPreviewImage(img);
+                                  }
+                                }}
+                                style={[styles.phasePill, {
+                                  backgroundColor: isActive ? phaseColor + '30' : phaseColor + '18',
+                                  borderColor: isActive ? phaseColor : phaseColor + '40',
+                                  borderWidth: isActive ? 2 : 1,
+                                }]}
+                              >
+                                <Text style={[styles.phaseFrame, { color: isActive ? phaseColor : Colors.textSecondary }]}>F{phase.frame}</Text>
+                                <Text style={[styles.phaseLabel, { color: phaseColor }]}>{phase.phase_label.split(' / ')[0]}</Text>
+                                {isActive && <Ionicons name="eye" size={10} color={phaseColor} />}
+                              </Pressable>
+                            );
+                          })}
                         </ScrollView>
+                        {activePhaseFrame !== null && (() => {
+                          const phase = motionData.phases.find((p: any) => p.frame === activePhaseFrame);
+                          if (!phase) return null;
+                          const mapIdx = annotatedFrameMap.indexOf(phase.frame);
+                          const frameAngles = mapIdx >= 0 ? poseAngles[mapIdx] : poseAngles[0];
+                          return (
+                            <View style={[styles.phaseDetail, { borderColor: (phase.phase_type === 'drive' ? Colors.success : phase.phase_type === 'loading' ? Colors.warning : Colors.primary) + '30' }]}>
+                              <Text style={[styles.phaseDetailTitle, { color: Colors.text }]}>
+                                {phase.phase_label} — Frame {phase.frame}
+                              </Text>
+                              <Text style={{ fontSize: 11, fontFamily: 'Outfit_400Regular', color: Colors.textMuted, marginBottom: 4 }}>
+                                Motion score: {phase.motion_score}
+                              </Text>
+                              {phase.dominant_joints && Object.keys(phase.dominant_joints).length > 0 && (
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+                                  {Object.entries(phase.dominant_joints).map(([joint, dir]: any) => (
+                                    <View key={joint} style={[styles.anglePill, { borderColor: dir === 'flexing' ? Colors.warning + '40' : Colors.success + '40' }]}>
+                                      <Text style={[styles.anglePillLabel, { color: dir === 'flexing' ? Colors.warning : Colors.success }]}>{joint.replace(/_/g, ' ')} {dir}</Text>
+                                      {frameAngles && frameAngles[joint] !== undefined && (
+                                        <Text style={[styles.anglePillValue, { color: dir === 'flexing' ? Colors.warning : Colors.success }]}>{frameAngles[joint]}°</Text>
+                                      )}
+                                    </View>
+                                  ))}
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })()}
                       </View>
                     )}
 
@@ -1112,6 +1243,63 @@ export default function AnalyzeScreen() {
                 <Text style={styles.analyzingText}>
                   {analysisStatus || 'Analyzing your technique...'}
                 </Text>
+              </View>
+            )}
+
+            {previousSessionData && analysisResult && (
+              <View style={styles.trendCard}>
+                <View style={styles.trendHeader}>
+                  <Ionicons name="trending-up" size={16} color={Colors.primary} />
+                  <Text style={styles.trendTitle}>Session Comparison</Text>
+                </View>
+                <Text style={styles.trendDate}>
+                  Last session: {new Date(previousSessionData.date).toLocaleDateString()}
+                </Text>
+                {Object.entries(previousSessionData.scores).slice(0, 4).map(([label, prevScore]) => {
+                  const currentScores = parseScoresFromResult(analysisResult);
+                  const currScore = currentScores[label];
+                  if (currScore === undefined) return null;
+                  const delta = currScore - prevScore;
+                  return (
+                    <View key={label} style={styles.trendRow}>
+                      <Text style={styles.trendLabel}>{label}</Text>
+                      <View style={styles.trendScores}>
+                        <Text style={[styles.trendPrev, { color: Colors.textMuted }]}>{prevScore}/10</Text>
+                        <Ionicons name="arrow-forward" size={12} color={Colors.textMuted} />
+                        <Text style={[styles.trendCurr, { color: Colors.text }]}>{currScore}/10</Text>
+                        {delta !== 0 && (
+                          <View style={[styles.trendDelta, { backgroundColor: delta > 0 ? Colors.success + '18' : Colors.error + '18' }]}>
+                            <Ionicons name={delta > 0 ? 'caret-up' : 'caret-down'} size={10} color={delta > 0 ? Colors.success : Colors.error} />
+                            <Text style={{ fontSize: 11, fontFamily: 'Outfit_600SemiBold', color: delta > 0 ? Colors.success : Colors.error }}>
+                              {delta > 0 ? '+' : ''}{delta.toFixed(1)}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
+                {previousSessionData.angles && Object.keys(previousSessionData.angles).length > 0 && poseAngles.length > 0 && (
+                  <View style={styles.trendAnglesSection}>
+                    <Text style={{ fontSize: 11, fontFamily: 'Outfit_600SemiBold', color: Colors.textMuted, marginBottom: 4 }}>Key Angles vs Last Session</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+                      {Object.entries(previousSessionData.angles).slice(0, 6).map(([joint, prevAngle]) => {
+                        const currAngle = poseAngles[0]?.[joint];
+                        if (currAngle === undefined) return null;
+                        const angleDelta = currAngle - prevAngle;
+                        if (Math.abs(angleDelta) < 2) return null;
+                        return (
+                          <View key={joint} style={[styles.anglePill, { borderColor: Math.abs(angleDelta) > 5 ? (angleDelta > 0 ? Colors.success + '40' : Colors.warning + '40') : Colors.border }]}>
+                            <Text style={styles.anglePillLabel}>{joint.replace(/_/g, ' ')}</Text>
+                            <Text style={[styles.anglePillValue, { color: Math.abs(angleDelta) > 5 ? (angleDelta > 0 ? Colors.success : Colors.warning) : Colors.primary }]}>
+                              {angleDelta > 0 ? '+' : ''}{angleDelta.toFixed(0)}°
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
               </View>
             )}
 
@@ -1364,6 +1552,11 @@ const createStyles = (C: any) => StyleSheet.create({
   },
   phaseFrame: { fontSize: 10, fontFamily: 'Outfit_500Medium' },
   phaseLabel: { fontSize: 11, fontFamily: 'Outfit_600SemiBold' },
+  phaseDetail: {
+    marginTop: 8, backgroundColor: C.surface, borderRadius: 10, padding: 10,
+    borderWidth: 1, gap: 4,
+  },
+  phaseDetailTitle: { fontSize: 13, fontFamily: 'Outfit_600SemiBold' },
   asymmetryRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 4, paddingHorizontal: 8,
@@ -1377,6 +1570,26 @@ const createStyles = (C: any) => StyleSheet.create({
   romFlagJoint: { fontSize: 12, fontFamily: 'Outfit_500Medium', color: C.text, textTransform: 'capitalize' },
   romFlagDetail: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: C.accent },
   selectedPreview: { marginBottom: 16 },
+  trendCard: {
+    backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 16,
+    borderWidth: 1, borderColor: C.primary + '30',
+  },
+  trendHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  trendTitle: { fontSize: 14, fontFamily: 'Outfit_700Bold', color: C.primary },
+  trendDate: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: C.textMuted, marginBottom: 8 },
+  trendRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 5,
+  },
+  trendLabel: { fontSize: 12, fontFamily: 'Outfit_500Medium', color: C.text, flex: 1 },
+  trendScores: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  trendPrev: { fontSize: 12, fontFamily: 'Outfit_400Regular' },
+  trendCurr: { fontSize: 12, fontFamily: 'Outfit_700Bold' },
+  trendDelta: {
+    flexDirection: 'row', alignItems: 'center', gap: 2,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+  },
+  trendAnglesSection: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border },
   previewThumb: { width: 80, height: 80, borderRadius: 10, borderWidth: 1, borderColor: C.border },
   analyzingBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 16,

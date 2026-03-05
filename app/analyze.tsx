@@ -47,6 +47,7 @@ function FormattedText({ text, Colors }: { text: string; Colors: any }) {
 
   const sectionIcons: Record<string, string> = {
     'quick take': 'flash',
+    'movement breakdown': 'pulse',
     'what you\'re nailing': 'checkmark-circle',
     'top improvements': 'trending-up',
     'technique score': 'stats-chart',
@@ -170,6 +171,7 @@ export default function AnalyzeScreen() {
   const [analysisStatus, setAnalysisStatus] = useState('');
   const [annotatedImages, setAnnotatedImages] = useState<string[]>([]);
   const [poseAngles, setPoseAngles] = useState<Record<string, number>[]>([]);
+  const [motionData, setMotionData] = useState<any>(null);
   const [poseDetected, setPoseDetected] = useState(false);
   const [poseMessage, setPoseMessage] = useState('');
   const [isDetectingPose, setIsDetectingPose] = useState(false);
@@ -476,6 +478,9 @@ export default function AnalyzeScreen() {
                 .filter((r: any) => r.angles)
                 .map((r: any) => r.angles);
               setPoseAngles(angles);
+              if (parsed.motion_analysis) {
+                setMotionData(parsed.motion_analysis);
+              }
             }
             if (parsed.content) {
               fullContent += parsed.content;
@@ -558,6 +563,7 @@ export default function AnalyzeScreen() {
     setAnalysisResult('');
     setAnnotatedImages([]);
     setPoseAngles([]);
+    setMotionData(null);
     setPoseDetected(false);
     setPoseMessage('');
     setShowAnnotated(false);
@@ -920,6 +926,74 @@ export default function AnalyzeScreen() {
                     ))}
                   </View>
                 )}
+
+                {motionData && !motionData.error && (
+                  <View style={styles.motionSummary}>
+                    {motionData.phases && motionData.phases.length > 0 && (
+                      <View style={styles.motionSection}>
+                        <View style={styles.motionSectionHeader}>
+                          <Ionicons name="pulse" size={14} color={Colors.primary} />
+                          <Text style={styles.motionSectionTitle}>Movement Phases</Text>
+                        </View>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                          {motionData.phases.map((phase: any, i: number) => (
+                            <View key={i} style={[styles.phasePill, {
+                              backgroundColor: phase.phase_type === 'drive' ? Colors.success + '18'
+                                : phase.phase_type === 'loading' ? Colors.warning + '18'
+                                : phase.phase_type === 'setup' ? Colors.primary + '18'
+                                : Colors.textMuted + '18',
+                              borderColor: phase.phase_type === 'drive' ? Colors.success + '40'
+                                : phase.phase_type === 'loading' ? Colors.warning + '40'
+                                : phase.phase_type === 'setup' ? Colors.primary + '40'
+                                : Colors.textMuted + '40',
+                            }]}>
+                              <Text style={[styles.phaseFrame, { color: Colors.textSecondary }]}>F{phase.frame}</Text>
+                              <Text style={[styles.phaseLabel, {
+                                color: phase.phase_type === 'drive' ? Colors.success
+                                  : phase.phase_type === 'loading' ? Colors.warning
+                                  : Colors.primary,
+                              }]}>{phase.phase_label.split(' / ')[0]}</Text>
+                            </View>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+
+                    {motionData.asymmetries && motionData.asymmetries.filter((a: any) => a.flagged).length > 0 && (
+                      <View style={styles.motionSection}>
+                        <View style={styles.motionSectionHeader}>
+                          <Ionicons name="warning" size={14} color={Colors.warning} />
+                          <Text style={[styles.motionSectionTitle, { color: Colors.warning }]}>Asymmetries Detected</Text>
+                        </View>
+                        {motionData.asymmetries.filter((a: any) => a.flagged).map((a: any, i: number) => (
+                          <View key={i} style={styles.asymmetryRow}>
+                            <Text style={styles.asymmetryJoint}>{a.joint}</Text>
+                            <Text style={[styles.asymmetryValue, {
+                              color: a.severity === 'significant' ? Colors.error : Colors.warning,
+                            }]}>{a.avg_difference}° avg diff</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    {motionData.range_of_motion && Object.values(motionData.range_of_motion).some((r: any) => r.flag && r.flag !== 'normal') && (
+                      <View style={styles.motionSection}>
+                        <View style={styles.motionSectionHeader}>
+                          <Ionicons name="resize" size={14} color={Colors.accent} />
+                          <Text style={[styles.motionSectionTitle, { color: Colors.accent }]}>ROM Flags</Text>
+                        </View>
+                        {Object.entries(motionData.range_of_motion)
+                          .filter(([, r]: any) => r.flag && r.flag !== 'normal')
+                          .map(([joint, r]: any, i: number) => (
+                            <View key={i} style={styles.romFlagRow}>
+                              <Text style={styles.romFlagJoint}>{joint.replace(/_/g, ' ')}</Text>
+                              <Text style={styles.romFlagDetail}>{r.range}° ROM</Text>
+                            </View>
+                          ))}
+                      </View>
+                    )}
+                  </View>
+                )}
               </View>
             ) : (
               <View style={styles.selectedPreview}>
@@ -1156,6 +1230,28 @@ const createStyles = (C: any) => StyleSheet.create({
   },
   anglePillLabel: { fontSize: 9, fontFamily: 'Outfit_500Medium', color: C.textMuted, textTransform: 'capitalize' },
   anglePillValue: { fontSize: 12, fontFamily: 'Outfit_700Bold', color: C.primary },
+  motionSummary: { marginTop: 10, gap: 10 },
+  motionSection: { gap: 6 },
+  motionSectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  motionSectionTitle: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: C.primary },
+  phasePill: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+    borderWidth: 1, alignItems: 'center', minWidth: 60,
+  },
+  phaseFrame: { fontSize: 10, fontFamily: 'Outfit_500Medium' },
+  phaseLabel: { fontSize: 11, fontFamily: 'Outfit_600SemiBold' },
+  asymmetryRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 4, paddingHorizontal: 8,
+  },
+  asymmetryJoint: { fontSize: 12, fontFamily: 'Outfit_500Medium', color: C.text },
+  asymmetryValue: { fontSize: 12, fontFamily: 'Outfit_600SemiBold' },
+  romFlagRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 4, paddingHorizontal: 8,
+  },
+  romFlagJoint: { fontSize: 12, fontFamily: 'Outfit_500Medium', color: C.text, textTransform: 'capitalize' },
+  romFlagDetail: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: C.accent },
   selectedPreview: { marginBottom: 16 },
   previewThumb: { width: 80, height: 80, borderRadius: 10, borderWidth: 1, borderColor: C.border },
   analyzingBar: {

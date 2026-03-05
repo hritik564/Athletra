@@ -40,6 +40,25 @@ ANGLE_DEFS = [
     ("torso_lean", 11, 23, 25),
 ]
 
+SYMMETRY_PAIRS = [
+    ("left_elbow", "right_elbow"),
+    ("left_shoulder", "right_shoulder"),
+    ("left_hip", "right_hip"),
+    ("left_knee", "right_knee"),
+    ("left_ankle", "right_ankle"),
+]
+
+ROM_REFERENCE = {
+    "left_elbow":     {"min": 30,  "max": 170, "label": "Elbow Flexion"},
+    "right_elbow":    {"min": 30,  "max": 170, "label": "Elbow Flexion"},
+    "left_shoulder":  {"min": 20,  "max": 180, "label": "Shoulder Flexion"},
+    "right_shoulder": {"min": 20,  "max": 180, "label": "Shoulder Flexion"},
+    "left_hip":       {"min": 30,  "max": 170, "label": "Hip Flexion"},
+    "right_hip":      {"min": 30,  "max": 170, "label": "Hip Flexion"},
+    "left_knee":      {"min": 10,  "max": 170, "label": "Knee Flexion"},
+    "right_knee":     {"min": 10,  "max": 170, "label": "Knee Flexion"},
+}
+
 
 def calc_angle(a, b, c):
     ba = np.array([a.x - b.x, a.y - b.y, a.z - b.z])
@@ -128,6 +147,187 @@ def analyze_image(img_b64, landmarker):
     }
 
 
+def compute_motion_analysis(per_frame_results):
+    detected_frames = [
+        (i, r) for i, r in enumerate(per_frame_results)
+        if r.get("detected") and r.get("angles")
+    ]
+
+    if len(detected_frames) < 2:
+        return None
+
+    all_joints = set()
+    for _, r in detected_frames:
+        all_joints.update(r["angles"].keys())
+
+    angle_timelines = {}
+    for joint in all_joints:
+        timeline = []
+        for frame_idx, r in detected_frames:
+            if joint in r["angles"]:
+                timeline.append({"frame": frame_idx + 1, "angle": r["angles"][joint]})
+        if len(timeline) >= 2:
+            angle_timelines[joint] = timeline
+
+    deltas = {}
+    for joint, timeline in angle_timelines.items():
+        frame_deltas = []
+        for k in range(1, len(timeline)):
+            prev = timeline[k - 1]
+            curr = timeline[k]
+            delta = round(curr["angle"] - prev["angle"], 1)
+            frame_deltas.append({
+                "from_frame": prev["frame"],
+                "to_frame": curr["frame"],
+                "from_angle": prev["angle"],
+                "to_angle": curr["angle"],
+                "delta": delta,
+                "direction": "flexing" if delta < -5 else "extending" if delta > 5 else "stable"
+            })
+        deltas[joint] = frame_deltas
+
+    rom = {}
+    for joint, timeline in angle_timelines.items():
+        angles_list = [t["angle"] for t in timeline]
+        min_a = min(angles_list)
+        max_a = max(angles_list)
+        measured_rom = round(max_a - min_a, 1)
+
+        entry = {
+            "min_angle": min_a,
+            "max_angle": max_a,
+            "range": measured_rom,
+            "min_frame": timeline[angles_list.index(min_a)]["frame"],
+            "max_frame": timeline[angles_list.index(max_a)]["frame"],
+        }
+
+        if joint in ROM_REFERENCE:
+            ref = ROM_REFERENCE[joint]
+            entry["reference_label"] = ref["label"]
+            entry["reference_min"] = ref["min"]
+            entry["reference_max"] = ref["max"]
+            if min_a < ref["min"] - 10:
+                entry["flag"] = "below_minimum"
+                entry["flag_detail"] = f"Reached {min_a}° (reference min: {ref['min']}°)"
+            elif max_a > ref["max"] + 10:
+                entry["flag"] = "above_maximum"
+                entry["flag_detail"] = f"Reached {max_a}° (reference max: {ref['max']}°)"
+            elif measured_rom < 30:
+                entry["flag"] = "limited_rom"
+                entry["flag_detail"] = f"Only {measured_rom}° ROM across frames"
+            else:
+                entry["flag"] = "normal"
+
+        rom[joint] = entry
+
+    asymmetries = []
+    for left_joint, right_joint in SYMMETRY_PAIRS:
+        if left_joint in angle_timelines and right_joint in angle_timelines:
+            left_angles = [t["angle"] for t in angle_timelines[left_joint]]
+            right_angles = [t["angle"] for t in angle_timelines[right_joint]]
+            min_len = min(len(left_angles), len(right_angles))
+
+            frame_diffs = []
+            for k in range(min_len):
+                diff = round(abs(left_angles[k] - right_angles[k]), 1)
+                frame_diffs.append(diff)
+
+            avg_diff = round(sum(frame_diffs) / len(frame_diffs), 1)
+            max_diff = max(frame_diffs)
+            max_diff_frame = frame_diffs.index(max_diff)
+
+            label = left_joint.replace("left_", "").replace("_", " ").title()
+            asymmetries.append({
+                "joint": label,
+                "left_joint": left_joint,
+                "right_joint": right_joint,
+                "avg_difference": avg_diff,
+                "max_difference": max_diff,
+                "max_diff_frame": detected_frames[min(max_diff_frame, len(detected_frames) - 1)][0] + 1,
+                "severity": "significant" if avg_diff > 15 else "moderate" if avg_diff > 8 else "minor",
+                "flagged": avg_diff > 8,
+            })
+
+    phases = detect_movement_phases(detected_frames, angle_timelines, deltas)
+
+    return {
+        "frame_count": len(detected_frames),
+        "total_frames": len(per_frame_results),
+        "tracked_joints": list(angle_timelines.keys()),
+        "deltas": deltas,
+        "range_of_motion": rom,
+        "asymmetries": asymmetries,
+        "phases": phases,
+    }
+
+
+def detect_movement_phases(detected_frames, angle_timelines, deltas):
+    if len(detected_frames) < 3:
+        return []
+
+    key_joints = ["left_knee", "right_knee", "left_hip", "right_hip",
+                  "left_elbow", "right_elbow", "left_shoulder", "right_shoulder"]
+    available_joints = [j for j in key_joints if j in deltas]
+
+    if not available_joints:
+        return []
+
+    num_frames = len(detected_frames)
+    frame_motion_scores = [0.0] * num_frames
+
+    for joint in available_joints:
+        for d in deltas[joint]:
+            to_idx = None
+            for idx, (fi, _) in enumerate(detected_frames):
+                if fi + 1 == d["to_frame"]:
+                    to_idx = idx
+                    break
+            if to_idx is not None:
+                frame_motion_scores[to_idx] += abs(d["delta"])
+
+    phases = []
+
+    for i in range(num_frames):
+        score = frame_motion_scores[i]
+        frame_num = detected_frames[i][0] + 1
+
+        joint_states = {}
+        for joint in available_joints:
+            for d in deltas[joint]:
+                if d["to_frame"] == frame_num:
+                    joint_states[joint] = d["direction"]
+
+        flexing_count = sum(1 for v in joint_states.values() if v == "flexing")
+        extending_count = sum(1 for v in joint_states.values() if v == "extending")
+        stable_count = sum(1 for v in joint_states.values() if v == "stable")
+
+        if score < 10:
+            phase_type = "setup"
+            phase_label = "Setup / Hold"
+        elif flexing_count > extending_count:
+            phase_type = "loading"
+            phase_label = "Loading / Coiling"
+        elif extending_count > flexing_count:
+            phase_type = "drive"
+            phase_label = "Drive / Extension"
+        elif stable_count >= len(joint_states) * 0.7:
+            phase_type = "hold"
+            phase_label = "Hold / Follow-through"
+        else:
+            phase_type = "transition"
+            phase_label = "Transition"
+
+        phases.append({
+            "frame": frame_num,
+            "phase_type": phase_type,
+            "phase_label": phase_label,
+            "motion_score": round(score, 1),
+            "dominant_joints": {k: v for k, v in joint_states.items() if v != "stable"},
+        })
+
+    return phases
+
+
 def main():
     try:
         input_data = json.loads(sys.stdin.read())
@@ -166,7 +366,17 @@ def main():
             except Exception as e:
                 results.append({"detected": False, "error": str(e)})
 
-    output = json.dumps({"results": results})
+    motion_analysis = None
+    if len(results) >= 2:
+        try:
+            motion_analysis = compute_motion_analysis(results)
+        except Exception as e:
+            motion_analysis = {"error": str(e)}
+
+    output = json.dumps({
+        "results": results,
+        "motion_analysis": motion_analysis
+    })
     sys.stdout.write(output)
     sys.stdout.flush()
 

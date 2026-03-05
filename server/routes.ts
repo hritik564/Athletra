@@ -18,7 +18,64 @@ interface PoseResult {
   annotated_image?: string;
 }
 
-async function runPoseDetection(images: string[]): Promise<PoseResult[]> {
+interface MotionDelta {
+  from_frame: number;
+  to_frame: number;
+  from_angle: number;
+  to_angle: number;
+  delta: number;
+  direction: string;
+}
+
+interface ROMEntry {
+  min_angle: number;
+  max_angle: number;
+  range: number;
+  min_frame: number;
+  max_frame: number;
+  reference_label?: string;
+  reference_min?: number;
+  reference_max?: number;
+  flag?: string;
+  flag_detail?: string;
+}
+
+interface Asymmetry {
+  joint: string;
+  left_joint: string;
+  right_joint: string;
+  avg_difference: number;
+  max_difference: number;
+  max_diff_frame: number;
+  severity: string;
+  flagged: boolean;
+}
+
+interface MovementPhase {
+  frame: number;
+  phase_type: string;
+  phase_label: string;
+  motion_score: number;
+  dominant_joints: Record<string, string>;
+}
+
+interface MotionAnalysis {
+  frame_count: number;
+  total_frames: number;
+  tracked_joints: string[];
+  deltas: Record<string, MotionDelta[]>;
+  range_of_motion: Record<string, ROMEntry>;
+  asymmetries: Asymmetry[];
+  phases: MovementPhase[];
+  error?: string;
+}
+
+interface PoseDetectionOutput {
+  results: PoseResult[];
+  motion_analysis: MotionAnalysis | null;
+}
+
+async function runPoseDetection(images: string[]): Promise<PoseDetectionOutput> {
   const scriptPath = path.join(import.meta.dirname || __dirname, "pose_detection.py");
   const input = JSON.stringify({ images });
 
@@ -41,7 +98,10 @@ async function runPoseDetection(images: string[]): Promise<PoseResult[]> {
       }
       try {
         const result = JSON.parse(stdout);
-        resolve(result.results || []);
+        resolve({
+          results: result.results || [],
+          motion_analysis: result.motion_analysis || null,
+        });
       } catch (e) {
         reject(new Error("Failed to parse pose detection output"));
       }
@@ -61,31 +121,87 @@ async function runPoseDetection(images: string[]): Promise<PoseResult[]> {
   });
 }
 
-function formatPoseDataForAI(poseResults: PoseResult[]): string {
+function formatLabel(joint: string): string {
+  return joint.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function formatPoseDataForAI(poseResults: PoseResult[], motionAnalysis: MotionAnalysis | null): string {
   const framesWithPose = poseResults.filter(r => r.detected);
   if (framesWithPose.length === 0) return "";
 
-  let report = "\n\n--- MEDIAPIPE POSE DETECTION DATA ---\n";
+  let report = "\n\n=== MEDIAPIPE POSE DETECTION DATA ===\n";
   report += `Pose detected in ${framesWithPose.length}/${poseResults.length} images.\n`;
 
+  report += "\n--- PER-FRAME JOINT ANGLES ---\n";
   framesWithPose.forEach((r, i) => {
-    report += `\n[Image ${i + 1}]\n`;
+    report += `\n[Frame ${i + 1}]\n`;
     if (r.angles && Object.keys(r.angles).length > 0) {
-      report += "Joint Angles:\n";
       for (const [joint, angle] of Object.entries(r.angles)) {
-        const label = joint.replace(/_/g, " ");
-        report += `  - ${label}: ${angle}°\n`;
+        report += `  ${formatLabel(joint)}: ${angle}°\n`;
       }
     }
     if (r.symmetry) {
-      report += "Body Symmetry:\n";
-      report += `  - Shoulders aligned: ${r.symmetry.shoulders_aligned ? "Yes" : `No (${(r.symmetry.shoulder_level_diff * 100).toFixed(1)}% off)`}\n`;
-      report += `  - Hips aligned: ${r.symmetry.hips_aligned ? "Yes" : `No (${(r.symmetry.hip_level_diff * 100).toFixed(1)}% off)`}\n`;
+      report += `  Shoulders: ${r.symmetry.shoulders_aligned ? "aligned" : `misaligned (${(r.symmetry.shoulder_level_diff * 100).toFixed(1)}% off)`}\n`;
+      report += `  Hips: ${r.symmetry.hips_aligned ? "aligned" : `misaligned (${(r.symmetry.hip_level_diff * 100).toFixed(1)}% off)`}\n`;
     }
   });
 
-  report += "\nThe annotated images show the skeleton overlay with joint angles marked. Use this precise data to give biomechanically accurate feedback.\n";
-  report += "--- END POSE DATA ---";
+  if (motionAnalysis && !motionAnalysis.error) {
+    if (motionAnalysis.phases && motionAnalysis.phases.length > 0) {
+      report += "\n--- MOVEMENT PHASES ---\n";
+      for (const phase of motionAnalysis.phases) {
+        const joints = Object.entries(phase.dominant_joints)
+          .map(([j, dir]) => `${formatLabel(j)} ${dir}`)
+          .join(", ");
+        report += `Frame ${phase.frame}: ${phase.phase_label} (motion score: ${phase.motion_score})`;
+        if (joints) report += ` — ${joints}`;
+        report += "\n";
+      }
+    }
+
+    if (motionAnalysis.deltas && Object.keys(motionAnalysis.deltas).length > 0) {
+      report += "\n--- FRAME-TO-FRAME ANGLE DELTAS ---\n";
+      for (const [joint, jointDeltas] of Object.entries(motionAnalysis.deltas)) {
+        report += `${formatLabel(joint)}:\n`;
+        for (const d of jointDeltas) {
+          const sign = d.delta > 0 ? "+" : "";
+          report += `  F${d.from_frame}→F${d.to_frame}: ${d.from_angle}° → ${d.to_angle}° (${sign}${d.delta}° ${d.direction})\n`;
+        }
+      }
+    }
+
+    if (motionAnalysis.range_of_motion && Object.keys(motionAnalysis.range_of_motion).length > 0) {
+      report += "\n--- RANGE OF MOTION ---\n";
+      for (const [joint, rom] of Object.entries(motionAnalysis.range_of_motion)) {
+        const label = rom.reference_label || formatLabel(joint);
+        report += `${label} (${formatLabel(joint)}): ${rom.min_angle}° to ${rom.max_angle}° = ${rom.range}° ROM`;
+        if (rom.reference_min !== undefined) {
+          report += ` [reference: ${rom.reference_min}°-${rom.reference_max}°]`;
+        }
+        if (rom.flag && rom.flag !== "normal") {
+          report += ` ⚠ ${rom.flag_detail}`;
+        }
+        report += "\n";
+      }
+    }
+
+    if (motionAnalysis.asymmetries && motionAnalysis.asymmetries.length > 0) {
+      const flagged = motionAnalysis.asymmetries.filter(a => a.flagged);
+      if (flagged.length > 0) {
+        report += "\n--- ASYMMETRY FLAGS ---\n";
+        for (const a of flagged) {
+          report += `⚠ ${a.joint}: avg ${a.avg_difference}° L/R difference (${a.severity}), worst at Frame ${a.max_diff_frame} (${a.max_difference}° diff)\n`;
+        }
+      }
+      const minor = motionAnalysis.asymmetries.filter(a => !a.flagged);
+      if (minor.length > 0) {
+        report += "Symmetric joints (< 8° difference): ";
+        report += minor.map(a => `${a.joint} (${a.avg_difference}°)`).join(", ") + "\n";
+      }
+    }
+  }
+
+  report += "\n=== END MOTION DATA ===";
   return report;
 }
 
@@ -465,11 +581,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "At least one image is required" });
       }
 
-      const poseResults = await runPoseDetection(images.slice(0, 6));
+      const { results: poseResults, motion_analysis } = await runPoseDetection(images.slice(0, 6));
       const detected = poseResults.filter(r => r.detected).length;
 
       res.json({
         results: poseResults,
+        motion_analysis,
         summary: {
           total: poseResults.length,
           detected,
@@ -500,12 +617,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.write(`data: ${JSON.stringify({ status: "Detecting body pose..." })}\n\n`);
 
       let poseResults: PoseResult[] = [];
+      let motionAnalysis: MotionAnalysis | null = null;
       let poseDataText = "";
       let annotatedImages = images.slice(0, 6);
 
       try {
-        poseResults = await runPoseDetection(images.slice(0, 6));
-        poseDataText = formatPoseDataForAI(poseResults);
+        const poseOutput = await runPoseDetection(images.slice(0, 6));
+        poseResults = poseOutput.results;
+        motionAnalysis = poseOutput.motion_analysis;
+        poseDataText = formatPoseDataForAI(poseResults, motionAnalysis);
 
         const inputImages = images.slice(0, 6);
         annotatedImages = inputImages.map((original: string, i: number) => {
@@ -517,7 +637,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         const detectedCount = poseResults.filter(r => r.detected).length;
-        res.write(`data: ${JSON.stringify({ status: `Pose detected in ${detectedCount}/${poseResults.length} images. Analyzing technique...` })}\n\n`);
+        const hasMotion = motionAnalysis && !motionAnalysis.error && motionAnalysis.phases && motionAnalysis.phases.length > 0;
+        const statusMsg = hasMotion
+          ? `Pose detected in ${detectedCount}/${poseResults.length} images. Motion analysis complete — ${motionAnalysis!.phases!.length} phases identified. Analyzing technique...`
+          : `Pose detected in ${detectedCount}/${poseResults.length} images. Analyzing technique...`;
+        res.write(`data: ${JSON.stringify({ status: statusMsg })}\n\n`);
 
         if (poseResults.some(r => r.detected)) {
           const posePreview = poseResults
@@ -527,7 +651,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               angles: r.angles,
               symmetry: r.symmetry,
             }));
-          res.write(`data: ${JSON.stringify({ pose_results: posePreview })}\n\n`);
+          res.write(`data: ${JSON.stringify({ pose_results: posePreview, motion_analysis: motionAnalysis })}\n\n`);
         }
       } catch (poseError) {
         console.error("Pose detection failed, continuing without:", poseError);
@@ -538,6 +662,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const hasPoseData = poseDataText.length > 0;
+      const hasMotionData = motionAnalysis && !motionAnalysis.error && motionAnalysis.phases && motionAnalysis.phases.length > 0;
 
       const systemPrompt = `You are VitalCoach — a world-class personal ${sportContext} coach. You've trained athletes at every level and you know how to give feedback that actually sticks. You speak like a real coach on the field: direct, warm, motivating, and never robotic.
 
@@ -550,13 +675,31 @@ VOICE & TONE:
 - Sound like a supportive expert, not a textbook
 ${hasPoseData ? `
 BIOMECHANICAL DATA:
-You have precise MediaPipe pose detection data with joint angles (degrees) and symmetry measurements. The annotated images show skeleton overlays. USE this data — cite specific angles vs ideal ranges for ${sportContext}. This is your edge as a coach.
+You have precise MediaPipe pose detection data with joint angles (degrees) and body symmetry measurements. The annotated images show skeleton overlays with angle labels.${hasMotionData ? `
+
+MOTION ANALYSIS DATA:
+You also have frame-to-frame motion analysis including:
+- MOVEMENT PHASES: Each frame is classified as Setup, Loading/Coiling, Drive/Extension, Hold/Follow-through, or Transition based on joint angle patterns
+- ANGLE DELTAS: Exact angle changes between consecutive frames for every tracked joint (e.g., "left knee went from 145° to 98° = -47° flexion")
+- RANGE OF MOTION: Min/max angles and total ROM for each joint across all frames, compared against reference ranges. Flagged joints indicate limited ROM or values outside safe ranges
+- ASYMMETRIES: Left vs right differences for paired joints. Flagged when average difference exceeds 8°
+
+USE ALL THIS DATA. Your coaching should be PHASE-BASED:
+- Tell the athlete what's happening in each phase of their movement
+- Reference specific angle deltas ("your knee flexed 47° during the loading phase — aim for 55-60° for more power")
+- Call out ROM issues ("your elbow only moved through 35° — you need at least 60° of extension for a full follow-through")
+- Flag asymmetries with actionable fixes ("your left shoulder is 12° higher than your right in the drive phase — focus on leveling your shoulders")
+` : `
+USE this data — cite specific angles vs ideal ranges for ${sportContext}. This is your edge as a coach.`}
 ` : ''}
 RESPONSE STRUCTURE (follow this exactly):
 
 **Quick Take**
 [2-3 sentences max. Lead with what impressed you, then the #1 thing to work on. Set the tone — energetic, like a coach's first reaction.]
-
+${hasMotionData ? `
+**Movement Breakdown**
+[Describe each phase of the movement you see across the frames. Reference the detected phases and what the athlete's body is doing in each one. Be specific about angles and transitions.]
+` : ''}
 **What You're Nailing**
 - [2-3 specific things done well, with brief sport-specific detail]
 - [Reference ${hasPoseData ? 'measured angles and positions' : 'visible positioning'}]
@@ -565,6 +708,7 @@ RESPONSE STRUCTURE (follow this exactly):
 - [2-3 sport-specific corrections ranked by impact]
 - [Each one: what's wrong → what it should look like → why it matters for ${sportContext}]
 ${hasPoseData ? '- [Reference measured angles vs ideal angles for the sport]' : ''}
+${hasMotionData ? '- [Reference angle deltas, ROM data, and asymmetries where relevant]' : ''}
 
 **Technique Score**
 - Overall: X/10

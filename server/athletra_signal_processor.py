@@ -21,11 +21,43 @@ import time
 from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import TypedDict
+
 import numpy as np
 from scipy.interpolate import CubicSpline
 
-from server.base_logic import BaseSportLogic
+from server.base_logic import BaseSportLogic, empty_standard_output
 from server.signal_factory import get_sport_processor
+
+
+class DerivedSignals(TypedDict):
+    """Pre-calculated biomechanical signals derived from smoothed landmarks."""
+    angles:          Dict[str, float]
+    target_velocity: float
+    shoulder_width:  float
+    gate_open:       bool
+
+
+class FramePacket(TypedDict):
+    """
+    Typed contract passed to every BaseSportLogic.process_frame() call.
+
+    Fields
+    ------
+    landmarks        : 33 smoothed image-space landmarks {x,y,z,visibility}
+    world_landmarks  : 33 raw world-space landmarks (may be empty list)
+    timestamp        : monotonic seconds
+    bbox_confidence  : person-detection confidence from MediaPipe [0, 1]
+    derived          : pre-calculated angles, velocity, shoulder_width
+    """
+    landmarks:       List[Dict[str, float]]
+    world_landmarks: List[Dict[str, float]]
+    timestamp:       float
+    bbox_confidence: float
+    derived:         DerivedSignals
 
 LANDMARK_NAMES = [
     "nose", "left_eye_inner", "left_eye", "left_eye_outer",
@@ -373,6 +405,8 @@ class AthletraSignalProcessor:
         self,
         landmarks: Optional[List[Dict]],
         timestamp: Optional[float] = None,
+        world_landmarks: Optional[List[Dict]] = None,
+        bbox_confidence: float = 1.0,
     ) -> Dict[str, Any]:
         """
         Process one frame of MediaPipe landmarks.
@@ -380,17 +414,24 @@ class AthletraSignalProcessor:
         Parameters
         ----------
         landmarks : list[dict] | None
-            33-element list of ``{x, y, z, visibility}`` dicts, or None.
+            33-element list of ``{x, y, z, visibility}`` image-space dicts,
+            or None when detection failed.
         timestamp : float | None
-            Seconds since epoch (or any monotonic float). Uses time.time()
-            if not provided.
+            Monotonic seconds. Defaults to time.time().
+        world_landmarks : list[dict] | None
+            33-element list of world-space dicts (optional). Passed through
+            in FramePacket; sport logic may use for 3-D angles.
+        bbox_confidence : float
+            Person-detection confidence from MediaPipe [0, 1]. Default 1.0.
+            Low values are NOT a fallback trigger — the active sport logic
+            handles them by appending "low_confidence" to StandardOutput.issues.
 
         Returns
         -------
         dict with keys:
             smoothed_landmarks, shoulder_width, target_velocity, joint_angle,
             gate_open, captured_segment (dict | None), confidence, frame_count,
-            missing_frames
+            missing_frames, sport_metrics (StandardOutput)
         """
         if timestamp is None:
             timestamp = time.time()
@@ -409,6 +450,7 @@ class AthletraSignalProcessor:
                 "confidence": self._confidence(),
                 "frame_count": self._frame_count,
                 "missing_frames": self._missing_frames,
+                "sport_metrics": empty_standard_output(),
             }
 
         self._frame_count += 1
@@ -458,34 +500,43 @@ class AthletraSignalProcessor:
                 captured_segment = self._process_segment(self._buffer)
             self._buffer = []
 
-        frame_data: Dict[str, Any] = {
-            "timestamp": timestamp,
-            "frame_index": self._frame_count,
-            "sport": self.sport_name,
-            "shoulder_width": shoulder_width,
+        all_angles: Dict[str, float] = {}
+        for joint_name in JOINT_ANGLE_DEFS:
+            angle = self._compute_joint_angle(smoothed, joint_name)
+            if angle is not None:
+                all_angles[joint_name] = angle
+
+        derived: DerivedSignals = {
+            "angles":          all_angles,
             "target_velocity": round(velocity, 6),
-            "joint_angle": joint_angle,
-            "gate_open": self._gate_open,
-            "smoothed_landmarks": smoothed,
-            "captured_segment": captured_segment,
+            "shoulder_width":  shoulder_width,
+            "gate_open":       self._gate_open,
         }
 
-        self._sport_processor.process_frame(frame_data)
-
-        return {
-            "smoothed_landmarks": [
+        packet: FramePacket = {
+            "landmarks":       [
                 {"x": lm["x"], "y": lm["y"], "z": lm["z"], "visibility": lm.get("visibility", 1.0)}
                 for lm in smoothed
             ],
-            "shoulder_width": shoulder_width,
-            "target_velocity": round(velocity, 6),
-            "joint_angle": joint_angle,
-            "gate_open": self._gate_open,
-            "captured_segment": captured_segment,
-            "confidence": self._confidence(),
-            "frame_count": self._frame_count,
-            "missing_frames": self._missing_frames,
-            "sport_metrics": self._sport_processor.get_metrics(),
+            "world_landmarks": world_landmarks if world_landmarks is not None else [],
+            "timestamp":       timestamp,
+            "bbox_confidence": bbox_confidence,
+            "derived":         derived,
+        }
+
+        self._sport_processor.process_frame(packet)
+
+        return {
+            "smoothed_landmarks": packet["landmarks"],
+            "shoulder_width":     shoulder_width,
+            "target_velocity":    round(velocity, 6),
+            "joint_angle":        joint_angle,
+            "gate_open":          self._gate_open,
+            "captured_segment":   captured_segment,
+            "confidence":         self._confidence(),
+            "frame_count":        self._frame_count,
+            "missing_frames":     self._missing_frames,
+            "sport_metrics":      self._sport_processor.get_metrics(),
         }
 
     def _process_segment(self, buffer: List[Dict]) -> Dict[str, Any]:

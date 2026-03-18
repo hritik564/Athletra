@@ -1,9 +1,16 @@
 """
 signal_factory.py
 =================
-Factory + singleton cache for sport-specific logic processors.
+Hierarchical factory + singleton cache for sport-specific logic processors.
 
-Adding a new sport takes exactly one line — add it to _REGISTRY below.
+Registry keys use  category:action  notation (e.g. "cricket:batting").
+Short names (e.g. "cricket") are resolved via DEFAULT_ACTIONS before lookup.
+
+Adding a new sport sub-mode takes one line in _REGISTRY.
+Adding a new sport's default takes one line in DEFAULT_ACTIONS.
+
+Singleton cache is keyed on the FULL resolved  category:action  string so
+that "cricket:batting" and "cricket:bowling" never share state.
 """
 
 from __future__ import annotations
@@ -17,54 +24,66 @@ from server.sports.yoga_logic import YogaLogic
 from server.sports.badminton_logic import BadmintonLogic
 from server.sports.skating_logic import SkatingLogic
 
+DEFAULT_ACTIONS: Dict[str, str] = {
+    "general":   "general:default",
+    "cricket":   "cricket:batting",
+    "yoga":      "yoga:pose",
+    "badminton": "badminton:smash",
+    "skating":   "skating:stride",
+}
+
 _REGISTRY: Dict[str, Type[BaseSportLogic]] = {
-    "general":   GeneralLogic,
-    "cricket":   CricketLogic,
-    "yoga":      YogaLogic,
-    "badminton": BadmintonLogic,
-    "skating":   SkatingLogic,
+    "general:default":   GeneralLogic,
+    "cricket:batting":   CricketLogic,
+    "yoga:pose":         YogaLogic,
+    "badminton:smash":   BadmintonLogic,
+    "skating:stride":    SkatingLogic,
 }
 
 _INSTANCES: Dict[str, BaseSportLogic] = {}
 
 
-def get_sport_processor(sport_name: str) -> BaseSportLogic:
+def _resolve_key(sport_name: str) -> str:
     """
-    Return a cached instance of the processor for *sport_name*.
+    Normalise *sport_name* to a full  category:action  key.
 
-    The instance is created once on first request and reused on every
-    subsequent call — processors are never re-created per frame.
-
-    Parameters
-    ----------
-    sport_name : str
-        Case-insensitive sport identifier (e.g. "cricket", "yoga").
-
-    Returns
-    -------
-    BaseSportLogic
-        Singleton processor instance for the requested sport.
-
-    Raises
-    ------
-    ValueError
-        If *sport_name* is not registered.
+    - Already contains ":"  → use as-is (lowercased + stripped)
+    - Short name            → look up DEFAULT_ACTIONS
+    - Unrecognised short    → "general:default" (never raises)
     """
     key = sport_name.strip().lower()
+    if ":" in key:
+        return key
+    return DEFAULT_ACTIONS.get(key, "general:default")
 
-    if key not in _REGISTRY:
-        available = ", ".join(sorted(_REGISTRY))
-        raise ValueError(
-            f"Unknown sport: {sport_name!r}. "
-            f"Available sports: {available}"
-        )
 
-    if key not in _INSTANCES:
-        _INSTANCES[key] = _REGISTRY[key]()
+def get_sport_processor(sport_name: str) -> BaseSportLogic:
+    """
+    Return a cached singleton processor for *sport_name*.
 
-    return _INSTANCES[key]
+    Resolution order
+    ----------------
+    1. Normalise to full  category:action  key via _resolve_key()
+    2. Look up in _REGISTRY
+    3. If not found → fall back to GeneralLogic (no exception raised)
+    4. Instantiate once and cache under the resolved key
+
+    The instance is NEVER re-created per frame.
+    """
+    full_key = _resolve_key(sport_name)
+
+    if full_key not in _INSTANCES:
+        cls = _REGISTRY.get(full_key, GeneralLogic)
+        _INSTANCES[full_key] = cls()
+
+    return _INSTANCES[full_key]
 
 
 def registered_sports() -> list[str]:
-    """Return a sorted list of all registered sport names."""
+    """Return all registered  category:action  keys, sorted."""
     return sorted(_REGISTRY)
+
+
+def registered_categories() -> list[str]:
+    """Return unique top-level category names (left side of ':'), sorted."""
+    return sorted({k.split(":")[0] for k in _REGISTRY})

@@ -19,7 +19,7 @@ from typing import Dict, Type
 
 from server.base_logic import BaseSportLogic
 from server.sports.general_logic import GeneralLogic
-from server.sports.cricket_logic import CricketLogic
+from server.sports.cricket_logic import CricketBattingLogic
 from server.sports.yoga_logic import YogaLogic
 from server.sports.badminton_logic import BadmintonLogic
 from server.sports.skating_logic import SkatingLogic
@@ -34,7 +34,7 @@ DEFAULT_ACTIONS: Dict[str, str] = {
 
 _REGISTRY: Dict[str, Type[BaseSportLogic]] = {
     "general:default":   GeneralLogic,
-    "cricket:batting":   CricketLogic,
+    "cricket:batting":   CricketBattingLogic,
     "yoga:pose":         YogaLogic,
     "badminton:smash":   BadmintonLogic,
     "skating:stride":    SkatingLogic,

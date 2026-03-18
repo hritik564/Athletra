@@ -779,7 +779,7 @@ export default function AnalyzeScreen() {
           ref={cameraRef}
           style={{ flex: 1 }}
           facing={facing}
-          mode={isRecordingVideo ? 'video' : 'picture'}
+          mode="video"
         >
           <View style={[styles.cameraOverlay, { paddingTop: (insets.top || webTopInset) + 8 }]}>
             <View style={styles.cameraTopBar}>

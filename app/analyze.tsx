@@ -780,56 +780,56 @@ export default function AnalyzeScreen() {
           style={{ flex: 1 }}
           facing={facing}
           mode="video"
-        >
-          <View style={[styles.cameraOverlay, { paddingTop: (insets.top || webTopInset) + 8 }]}>
-            <View style={styles.cameraTopBar}>
-              <Pressable style={styles.cameraBtn} onPress={() => { if (isRecordingVideo) stopVideoRecording(); setMode('select'); }}>
-                <Ionicons name="close" size={24} color="#fff" />
-              </Pressable>
-              <Pressable style={styles.cameraBtn} onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}>
-                <Ionicons name="camera-reverse" size={24} color="#fff" />
-              </Pressable>
-            </View>
-          </View>
+        />
 
-          <View style={[styles.cameraBottomBar, { paddingBottom: bottomInset + 16 }]}>
-            {isRecordingVideo && (
-              <View style={styles.recordingBadge}>
-                <View style={styles.recordingDot} />
-                <Text style={styles.recordingBadgeText}>Recording...</Text>
-              </View>
+        <View style={[styles.cameraOverlay, { paddingTop: (insets.top || webTopInset) + 8 }]}>
+          <View style={styles.cameraTopBar}>
+            <Pressable style={styles.cameraBtn} onPress={() => { if (isRecordingVideo) stopVideoRecording(); setMode('select'); }}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </Pressable>
+            <Pressable style={styles.cameraBtn} onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}>
+              <Ionicons name="camera-reverse" size={24} color="#fff" />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={[styles.cameraBottomBar, { paddingBottom: bottomInset + 16 }]}>
+          {isRecordingVideo && (
+            <View style={styles.recordingBadge}>
+              <View style={styles.recordingDot} />
+              <Text style={styles.recordingBadgeText}>Recording...</Text>
+            </View>
+          )}
+          {selectedImages.length > 0 && !isRecordingVideo && (
+            <View style={styles.capturedCount}>
+              <Text style={styles.capturedCountText}>{selectedImages.length} captured</Text>
+            </View>
+          )}
+
+          <View style={styles.cameraControls}>
+            {Platform.OS !== 'web' && !isRecordingVideo && (
+              <Pressable style={styles.cameraSecondaryBtn} onPress={startVideoRecording}>
+                <Ionicons name="videocam" size={22} color="#fff" />
+              </Pressable>
             )}
+
+            {isRecordingVideo ? (
+              <Pressable style={styles.stopRecBtn} onPress={stopVideoRecording}>
+                <View style={styles.stopRecInner} />
+              </Pressable>
+            ) : (
+              <Pressable style={styles.shutterBtn} onPress={takePhoto}>
+                <View style={styles.shutterInner} />
+              </Pressable>
+            )}
+
             {selectedImages.length > 0 && !isRecordingVideo && (
-              <View style={styles.capturedCount}>
-                <Text style={styles.capturedCountText}>{selectedImages.length} captured</Text>
-              </View>
+              <Pressable style={styles.cameraSecondaryBtn} onPress={() => setMode('review')}>
+                <Ionicons name="arrow-forward" size={22} color="#fff" />
+              </Pressable>
             )}
-
-            <View style={styles.cameraControls}>
-              {Platform.OS !== 'web' && !isRecordingVideo && (
-                <Pressable style={styles.cameraSecondaryBtn} onPress={startVideoRecording}>
-                  <Ionicons name="videocam" size={22} color="#fff" />
-                </Pressable>
-              )}
-
-              {isRecordingVideo ? (
-                <Pressable style={styles.stopRecBtn} onPress={stopVideoRecording}>
-                  <View style={styles.stopRecInner} />
-                </Pressable>
-              ) : (
-                <Pressable style={styles.shutterBtn} onPress={takePhoto}>
-                  <View style={styles.shutterInner} />
-                </Pressable>
-              )}
-
-              {selectedImages.length > 0 && !isRecordingVideo && (
-                <Pressable style={styles.cameraSecondaryBtn} onPress={() => setMode('review')}>
-                  <Ionicons name="arrow-forward" size={22} color="#fff" />
-                </Pressable>
-              )}
-            </View>
           </View>
-        </CameraView>
+        </View>
       </View>
     );
   };

@@ -646,7 +646,7 @@ export default function CoachScreen() {
             <Ionicons name="sparkles" size={18} color="#fff" />
           </LinearGradient>
           <View>
-            <Text style={styles.headerTitle}>VitalCoach</Text>
+            <Text style={styles.headerTitle}>Athletra</Text>
             <Text style={styles.headerSubtitle}>
               {isRecording ? 'Listening...' : isProcessingVoice ? 'Processing...' : 'AI Fitness Coach'}
             </Text>

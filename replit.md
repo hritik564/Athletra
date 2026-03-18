@@ -1,8 +1,8 @@
-# VitalCoach
+# Athletra
 
 ## Overview
 
-VitalCoach is a mobile-first AI fitness and wellness coaching app built with Expo (React Native) and an Express backend. It provides personalized workout plans, meal tracking, weight/progress monitoring, and an AI coach powered by OpenAI. The app features a multi-step onboarding flow that collects user health data, goals, and preferences, then uses that context to deliver tailored coaching through a chat interface with voice support.
+Athletra is a mobile-first AI fitness and wellness coaching app built with Expo (React Native) and an Express backend. It provides personalized workout plans, meal tracking, weight/progress monitoring, and an AI coach powered by OpenAI. The app features a multi-step onboarding flow that collects user health data, goals, and preferences, then uses that context to deliver tailored coaching through a chat interface with voice support.
 
 ## User Preferences
 
@@ -60,7 +60,7 @@ All data stored in UserProfile via AsyncStorage and passed to AI coach for perso
 
 ### AI Coach Architecture
 
-- The coach system prompt is a detailed persona ("VitalCoach") defined in `server/routes.ts` that includes exercise science expertise, nutrition knowledge, and behavioral psychology
+- The coach system prompt is a detailed persona ("Athletra") defined in `server/routes.ts` that includes exercise science expertise, nutrition knowledge, and behavioral psychology
 - User profile context (name, age, weight, height, goals, health conditions, dietary preferences, athlete status) is injected into every AI request for personalized responses
 - Today's fitness data (meals eaten, workouts completed, water intake) is also sent as context
 - Voice support: Audio recording on client → base64 encoding → server speech-to-text → AI response → optional text-to-speech back

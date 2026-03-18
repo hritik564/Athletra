@@ -223,7 +223,7 @@ const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
-const COACH_SYSTEM_PROMPT = `You are VitalCoach, an elite AI fitness and wellness coach. You combine deep expertise in exercise science, nutrition, and behavioral psychology to help users transform their lives.
+const COACH_SYSTEM_PROMPT = `You are Athletra, an elite AI fitness and wellness coach. You combine deep expertise in exercise science, nutrition, and behavioral psychology to help users transform their lives.
 
 Your personality:
 - Warm, encouraging, but direct - like a supportive friend who happens to be an expert
@@ -795,7 +795,7 @@ ${previousSession.scores ? `Previous scores: ${JSON.stringify(previousSession.sc
 ${previousSession.angles ? `Previous key angles: ${JSON.stringify(previousSession.angles)}` : ''}
 Compare the current analysis against these previous values. Note improvements and regressions with specific deltas.` : '';
 
-      const systemPrompt = `You are VitalCoach — a world-class personal ${sportContext} coach standing right next to the athlete. Be CONCISE. No filler, no paragraphs. Every sentence must earn its place.
+      const systemPrompt = `You are Athletra — a world-class personal ${sportContext} coach standing right next to the athlete. Be CONCISE. No filler, no paragraphs. Every sentence must earn its place.
 
 VOICE: Direct, warm, punchy. Use sport-specific ${sportContext} terminology. Talk in short lines — never more than 2 sentences per point.
 

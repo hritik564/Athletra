@@ -7,7 +7,7 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { fetch } from 'expo/fetch';
 import * as Haptics from 'expo-haptics';
@@ -270,7 +270,6 @@ export default function AnalyzeScreen() {
   const insets = useSafeAreaInsets();
   const { profile } = useUser();
   const [permission, requestPermission] = useCameraPermissions();
-  const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const [mode, setMode] = useState<AnalyzeMode>('select');
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [videoUri, setVideoUri] = useState<string | null>(null);
@@ -295,7 +294,6 @@ export default function AnalyzeScreen() {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [facing, setFacing] = useState<'front' | 'back'>('back');
-  const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -351,30 +349,23 @@ export default function AnalyzeScreen() {
   };
 
   const startVideoRecording = async () => {
-    if (!cameraRef.current || Platform.OS === 'web') return;
+    if (Platform.OS === 'web') return;
     try {
-      if (!micPermission?.granted) {
-        const { granted } = await requestMicPermission();
-        if (!granted) return;
-      }
-      setIsRecordingVideo(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      const video = await cameraRef.current.recordAsync({ maxDuration: 15 });
-      if (video?.uri) {
-        setVideoUri(video.uri);
-        await extractFramesFromVideo(video.uri);
+      setMode('select');
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['videos'],
+        videoMaxDuration: 15,
+        quality: 0.7,
+      });
+      if (!result.canceled && result.assets.length > 0) {
+        const asset = result.assets[0];
+        setVideoUri(asset.uri);
+        await extractFramesFromVideo(asset.uri);
       }
     } catch (e) {
       console.error('Failed to record video:', e);
-      setIsRecordingVideo(false);
     }
-  };
-
-  const stopVideoRecording = () => {
-    if (cameraRef.current) {
-      cameraRef.current.stopRecording();
-    }
-    setIsRecordingVideo(false);
   };
 
   const pickFromGallery = async () => {
@@ -784,7 +775,7 @@ export default function AnalyzeScreen() {
 
         <View style={[styles.cameraOverlay, { paddingTop: (insets.top || webTopInset) + 8 }]}>
           <View style={styles.cameraTopBar}>
-            <Pressable style={styles.cameraBtn} onPress={() => { if (isRecordingVideo) stopVideoRecording(); setMode('select'); }}>
+            <Pressable style={styles.cameraBtn} onPress={() => setMode('select')}>
               <Ionicons name="close" size={24} color="#fff" />
             </Pressable>
             <Pressable style={styles.cameraBtn} onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}>
@@ -794,36 +785,24 @@ export default function AnalyzeScreen() {
         </View>
 
         <View style={[styles.cameraBottomBar, { paddingBottom: bottomInset + 16 }]}>
-          {isRecordingVideo && (
-            <View style={styles.recordingBadge}>
-              <View style={styles.recordingDot} />
-              <Text style={styles.recordingBadgeText}>Recording...</Text>
-            </View>
-          )}
-          {selectedImages.length > 0 && !isRecordingVideo && (
+          {selectedImages.length > 0 && (
             <View style={styles.capturedCount}>
               <Text style={styles.capturedCountText}>{selectedImages.length} captured</Text>
             </View>
           )}
 
           <View style={styles.cameraControls}>
-            {Platform.OS !== 'web' && !isRecordingVideo && (
+            {Platform.OS !== 'web' && (
               <Pressable style={styles.cameraSecondaryBtn} onPress={startVideoRecording}>
                 <Ionicons name="videocam" size={22} color="#fff" />
               </Pressable>
             )}
 
-            {isRecordingVideo ? (
-              <Pressable style={styles.stopRecBtn} onPress={stopVideoRecording}>
-                <View style={styles.stopRecInner} />
-              </Pressable>
-            ) : (
-              <Pressable style={styles.shutterBtn} onPress={takePhoto}>
-                <View style={styles.shutterInner} />
-              </Pressable>
-            )}
+            <Pressable style={styles.shutterBtn} onPress={takePhoto}>
+              <View style={styles.shutterInner} />
+            </Pressable>
 
-            {selectedImages.length > 0 && !isRecordingVideo && (
+            {selectedImages.length > 0 && (
               <Pressable style={styles.cameraSecondaryBtn} onPress={() => setMode('review')}>
                 <Ionicons name="arrow-forward" size={22} color="#fff" />
               </Pressable>
@@ -1775,22 +1754,11 @@ const createStyles = (C: any) => StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
   },
   capturedCountText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: '#fff' },
-  recordingBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: 'rgba(231,76,60,0.8)', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
-  },
-  recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' },
-  recordingBadgeText: { fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: '#fff' },
   shutterBtn: {
     width: 72, height: 72, borderRadius: 36, borderWidth: 4, borderColor: '#fff',
     alignItems: 'center', justifyContent: 'center',
   },
   shutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#fff' },
-  stopRecBtn: {
-    width: 72, height: 72, borderRadius: 36, borderWidth: 4, borderColor: '#E74C3C',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  stopRecInner: { width: 30, height: 30, borderRadius: 4, backgroundColor: '#E74C3C' },
   reviewBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20,

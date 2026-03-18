@@ -7,7 +7,7 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { fetch } from 'expo/fetch';
 import * as Haptics from 'expo-haptics';
@@ -270,6 +270,7 @@ export default function AnalyzeScreen() {
   const insets = useSafeAreaInsets();
   const { profile } = useUser();
   const [permission, requestPermission] = useCameraPermissions();
+  const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const [mode, setMode] = useState<AnalyzeMode>('select');
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [videoUri, setVideoUri] = useState<string | null>(null);
@@ -352,6 +353,10 @@ export default function AnalyzeScreen() {
   const startVideoRecording = async () => {
     if (!cameraRef.current || Platform.OS === 'web') return;
     try {
+      if (!micPermission?.granted) {
+        const { granted } = await requestMicPermission();
+        if (!granted) return;
+      }
       setIsRecordingVideo(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       const video = await cameraRef.current.recordAsync({ maxDuration: 15 });

@@ -3,7 +3,7 @@ modules = ["nodejs-22", "python-3.11"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["xorg.libxcb", "xorg.libX11", "libGL"]
+packages = ["libGL", "libxcrypt", "pkg-config", "xorg.libX11", "xorg.libxcb", "xsimd"]
 
 [deployment]
 deploymentTarget = "cloudrun"

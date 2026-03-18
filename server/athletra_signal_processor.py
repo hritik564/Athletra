@@ -24,6 +24,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from scipy.interpolate import CubicSpline
 
+from server.base_logic import BaseSportLogic
+from server.signal_factory import get_sport_processor
+
 LANDMARK_NAMES = [
     "nose", "left_eye_inner", "left_eye", "left_eye_outer",
     "right_eye_inner", "right_eye", "right_eye_outer",
@@ -180,6 +183,7 @@ class AthletraSignalProcessor:
 
     def __init__(
         self,
+        sport_name: str = "general",
         target_joint: str = "left_wrist",
         smoothing_method: str = "one_euro",
         ema_alpha: float = 0.3,
@@ -197,6 +201,9 @@ class AthletraSignalProcessor:
     ):
         if gate_threshold_close >= gate_threshold_open:
             raise ValueError("gate_threshold_close must be < gate_threshold_open")
+
+        self.sport_name = sport_name.strip().lower()
+        self._sport_processor: BaseSportLogic = get_sport_processor(self.sport_name)
 
         self.target_joint = target_joint
         self.smoothing_method = smoothing_method
@@ -451,6 +458,20 @@ class AthletraSignalProcessor:
                 captured_segment = self._process_segment(self._buffer)
             self._buffer = []
 
+        frame_data: Dict[str, Any] = {
+            "timestamp": timestamp,
+            "frame_index": self._frame_count,
+            "sport": self.sport_name,
+            "shoulder_width": shoulder_width,
+            "target_velocity": round(velocity, 6),
+            "joint_angle": joint_angle,
+            "gate_open": self._gate_open,
+            "smoothed_landmarks": smoothed,
+            "captured_segment": captured_segment,
+        }
+
+        self._sport_processor.process_frame(frame_data)
+
         return {
             "smoothed_landmarks": [
                 {"x": lm["x"], "y": lm["y"], "z": lm["z"], "visibility": lm.get("visibility", 1.0)}
@@ -464,6 +485,7 @@ class AthletraSignalProcessor:
             "confidence": self._confidence(),
             "frame_count": self._frame_count,
             "missing_frames": self._missing_frames,
+            "sport_metrics": self._sport_processor.get_metrics(),
         }
 
     def _process_segment(self, buffer: List[Dict]) -> Dict[str, Any]:

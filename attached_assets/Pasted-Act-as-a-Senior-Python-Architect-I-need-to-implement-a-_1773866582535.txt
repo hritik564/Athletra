@@ -1,0 +1,106 @@
+Act as a Senior Python Architect.
+
+I need to implement a clean and extensible Factory Pattern (Switcher) for my sports analysis app, Athletra.
+
+This step is ONLY about routing — do NOT implement any sport-specific logic.
+
+----------------------------------
+TASK 1: BASE INTERFACE
+----------------------------------
+
+Create a file:
+
+server/base_logic.py
+
+Define an abstract base class:
+
+BaseSportLogic
+
+It should define the following methods (no implementation):
+
+- process_frame(data)
+- get_metrics()
+- reset()
+
+----------------------------------
+TASK 2: SPORT CLASS STUBS
+----------------------------------
+
+Create a folder:
+
+server/sports/
+
+Inside it, create stub classes:
+
+- cricket_logic.py
+- yoga_logic.py
+- badminton_logic.py
+- skating_logic.py
+
+Each class should:
+
+- Inherit from BaseSportLogic
+- Contain only minimal placeholder implementations (pass or simple return)
+- NOT include any real logic
+
+----------------------------------
+TASK 3: FACTORY SWITCHER
+----------------------------------
+
+Create:
+
+server/signal_factory.py
+
+Implement:
+
+get_sport_processor(sport_name: str) -> BaseSportLogic
+
+Requirements:
+
+- Use a dictionary registry mapping sport_name → class
+- Return an INSTANCE of the correct class
+- Raise a clear error if sport_name is invalid
+- Keep it easily extendable (add new sport with one line)
+
+----------------------------------
+TASK 4: SINGLETON / REUSE (IMPORTANT)
+----------------------------------
+
+Ensure processors are NOT re-created every frame.
+
+Options:
+- Cache instances inside the factory
+OR
+- Use a simple registry with persistent objects
+
+----------------------------------
+TASK 5: INTEGRATION HOOK
+----------------------------------
+
+Modify AthletraSignalProcessor:
+
+- Accept sport_name in __init__()
+- Initialize processor ONCE using the factory
+- In update():
+    - Pass processed data to processor.process_frame()
+    - Return processor.get_metrics()
+
+----------------------------------
+CONSTRAINTS
+----------------------------------
+
+- NO sport-specific logic yet
+- NO motion analysis yet
+- Focus ONLY on architecture
+- Keep memory efficient
+- Clean, readable, modular code
+
+----------------------------------
+GOAL
+----------------------------------
+
+After this step, I should be able to:
+
+processor = AthletraSignalProcessor("cricket")
+
+and internally it routes to CricketLogic automatically.

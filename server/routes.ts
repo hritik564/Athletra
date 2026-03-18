@@ -536,8 +536,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const videoBuffer = Buffer.from(video, "base64");
       fs.writeFileSync(videoPath, videoBuffer);
 
-      const targetFrames = 6;
-      const sampleDensity = 20;
+      const MAX_FRAMES = 60;
+      const sampleDensity = 60;
+      const GATE_OPEN_THRESHOLD = 0.15;
+      const GATE_CLOSE_THRESHOLD = 0.05;
+      const SW_EMA_ALPHA = 0.15;
+
       try {
         const durationOutput = execSync(
           `ffprobe -v error -show_entries format=duration -of csv=p=0 "${videoPath}"`,
@@ -545,8 +549,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ).trim();
         const duration = parseFloat(durationOutput) || 10;
 
-        const sampleCount = Math.min(sampleDensity, Math.max(targetFrames, Math.floor(duration * 3)));
-        const sampleInterval = Math.max(duration / (sampleCount + 1), 0.1);
+        const sampleCount = Math.min(sampleDensity, Math.max(6, Math.floor(duration * 6)));
+        const sampleInterval = Math.max(duration / (sampleCount + 1), 0.05);
 
         for (let i = 1; i <= sampleCount; i++) {
           const timestamp = sampleInterval * i;
@@ -573,67 +577,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         let selectedFrames: typeof sampleFrames;
+        let method = 'gate';
 
-        if (sampleFrames.length <= targetFrames) {
+        if (sampleFrames.length <= 2) {
           selectedFrames = sampleFrames;
+          method = 'all';
         } else {
           try {
             const sampleImages = sampleFrames.map(f => f.b64);
             const poseOutput = await runPoseDetection(sampleImages);
             const poseResults = poseOutput.results;
 
-            const motionScores: { idx: number; score: number }[] = [];
-            for (let i = 1; i < poseResults.length; i++) {
-              const prev = poseResults[i - 1];
-              const curr = poseResults[i];
-              let score = 0;
-              if (prev?.detected && curr?.detected && prev.angles && curr.angles) {
-                for (const joint of Object.keys(curr.angles)) {
-                  if (prev.angles[joint] !== undefined) {
-                    score += Math.abs(curr.angles[joint] - prev.angles[joint]);
-                  }
-                }
+            // ── Gate-based dynamic selection ─────────────────────────────────
+            // Compute shoulder-normalised wrist velocity per frame (scalar),
+            // then apply a hysteresis gate to find active movement windows.
+            // Capture every frame while the gate is open; cap at MAX_FRAMES.
+
+            let smoothedSW = 0;
+            let prevWrist: { x: number; y: number; z: number } | null = null;
+            let gateOpen = false;
+            const gateFrameIndices: number[] = [];
+
+            for (let i = 0; i < poseResults.length; i++) {
+              const r = poseResults[i];
+              const dt = i === 0 ? sampleInterval : sampleInterval;
+
+              if (!r?.detected || !r.landmarks) {
+                prevWrist = null;
+                continue;
               }
-              motionScores.push({ idx: i, score });
+
+              // 1. Smooth shoulder_width via EMA (stable scale reference)
+              const ls = r.landmarks['left_shoulder'];
+              const rs = r.landmarks['right_shoulder'];
+              if (ls && rs) {
+                const rawSW = Math.sqrt(
+                  (ls.x - rs.x) ** 2 + (ls.y - rs.y) ** 2 + (ls.z - rs.z) ** 2
+                );
+                smoothedSW = smoothedSW === 0
+                  ? rawSW
+                  : SW_EMA_ALPHA * rawSW + (1 - SW_EMA_ALPHA) * smoothedSW;
+              }
+
+              if (smoothedSW < 1e-6) { prevWrist = null; continue; }
+
+              // 2. Compute scalar normalised velocity of left_wrist
+              const wrist = r.landmarks['left_wrist'] ?? r.landmarks['right_wrist'];
+              let velocity = 0;
+              if (wrist && prevWrist) {
+                const dist = Math.sqrt(
+                  (wrist.x - prevWrist.x) ** 2 +
+                  (wrist.y - prevWrist.y) ** 2 +
+                  (wrist.z - prevWrist.z) ** 2
+                );
+                velocity = (dist / dt) / smoothedSW;
+              }
+              if (wrist) prevWrist = { x: wrist.x, y: wrist.y, z: wrist.z };
+
+              // 3. Gate open/close with hysteresis
+              if (!gateOpen && velocity > GATE_OPEN_THRESHOLD) gateOpen = true;
+              if (gateOpen && velocity < GATE_CLOSE_THRESHOLD) gateOpen = false;
+
+              if (gateOpen) gateFrameIndices.push(i);
             }
 
-            motionScores.sort((a, b) => b.score - a.score);
-
-            const selectedIndices = new Set<number>();
-            selectedIndices.add(0);
-            selectedIndices.add(sampleFrames.length - 1);
-
-            for (const ms of motionScores) {
-              if (selectedIndices.size >= targetFrames) break;
-              let tooClose = false;
-              for (const si of selectedIndices) {
-                if (Math.abs(ms.idx - si) < 2) {
-                  tooClose = true;
-                  break;
-                }
-              }
-              if (!tooClose) {
-                selectedIndices.add(ms.idx);
+            // Cap at MAX_FRAMES: if gate captured more than the limit,
+            // subsample evenly across the gate window to preserve coverage.
+            let keptIndices: number[];
+            if (gateFrameIndices.length === 0) {
+              // Gate never opened (low-motion clip) — return all frames up to cap
+              keptIndices = sampleFrames.map((_, i) => i).slice(0, MAX_FRAMES);
+              method = 'all';
+            } else if (gateFrameIndices.length <= MAX_FRAMES) {
+              keptIndices = gateFrameIndices;
+            } else {
+              // Evenly subsample within the gate window
+              const step = (gateFrameIndices.length - 1) / (MAX_FRAMES - 1);
+              keptIndices = [];
+              for (let i = 0; i < MAX_FRAMES; i++) {
+                keptIndices.push(gateFrameIndices[Math.round(step * i)]);
               }
             }
 
-            while (selectedIndices.size < targetFrames && selectedIndices.size < sampleFrames.length) {
-              for (let i = 0; i < sampleFrames.length && selectedIndices.size < targetFrames; i++) {
-                if (!selectedIndices.has(i)) {
-                  selectedIndices.add(i);
-                }
-              }
-            }
-
-            const sortedIndices = Array.from(selectedIndices).sort((a, b) => a - b);
-            selectedFrames = sortedIndices.map(i => sampleFrames[i]);
+            selectedFrames = keptIndices.map(i => sampleFrames[i]);
           } catch (poseErr) {
-            console.error("Motion-based selection failed, falling back to evenly spaced:", poseErr);
-            const step = (sampleFrames.length - 1) / (targetFrames - 1);
-            selectedFrames = [];
-            for (let i = 0; i < targetFrames; i++) {
-              selectedFrames.push(sampleFrames[Math.round(step * i)]);
-            }
+            console.error("Gate selection failed, returning all frames:", poseErr);
+            selectedFrames = sampleFrames.slice(0, MAX_FRAMES);
+            method = 'all';
           }
         }
 
@@ -647,7 +677,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "Could not extract frames from video" });
         }
 
-        const method = sampleFrames.length <= targetFrames ? 'all' : 'motion';
         res.json({ frames, count: frames.length, method });
       } catch (ffmpegError) {
         try {
@@ -669,7 +698,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "At least one image is required" });
       }
 
-      const { results: poseResults, motion_analysis } = await runPoseDetection(images.slice(0, 6));
+      const { results: poseResults, motion_analysis } = await runPoseDetection(images.slice(0, 60));
       const detected = poseResults.filter(r => r.detected).length;
 
       res.json({
@@ -707,19 +736,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let poseResults: PoseResult[] = [];
       let motionAnalysis: MotionAnalysis | null = null;
       let poseDataText = "";
-      let annotatedImages = images.slice(0, 6);
+      let annotatedImages = [...images];
 
       let correctionGuide: CorrectionGuide | null = null;
 
       try {
-        const poseOutput = await runPoseDetection(images.slice(0, 6));
+        const poseOutput = await runPoseDetection(images);
         poseResults = poseOutput.results;
         motionAnalysis = poseOutput.motion_analysis;
         correctionGuide = poseOutput.correction_guide;
         poseDataText = formatPoseDataForAI(poseResults, motionAnalysis);
 
-        const inputImages = images.slice(0, 6);
-        annotatedImages = inputImages.map((original: string, i: number) => {
+        annotatedImages = images.map((original: string, i: number) => {
           const poseResult = poseResults[i];
           if (poseResult?.detected && poseResult.annotated_image) {
             return poseResult.annotated_image;
@@ -751,7 +779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (poseError) {
         console.error("Pose detection failed, continuing without:", poseError);
         res.write(`data: ${JSON.stringify({ status: "Analyzing technique with visual inspection..." })}\n\n`);
-        annotatedImages = images.slice(0, 6).map((img: string) =>
+        annotatedImages = images.map((img: string) =>
           img.startsWith('data:') ? img.split(',')[1] : img
         );
       }

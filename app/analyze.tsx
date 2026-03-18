@@ -379,7 +379,7 @@ export default function AnalyzeScreen() {
         allowsMultipleSelection: true,
         quality: 0.7,
         base64: true,
-        selectionLimit: 6,
+        selectionLimit: 60,
       });
 
       if (!result.canceled && result.assets.length > 0) {
@@ -387,7 +387,7 @@ export default function AnalyzeScreen() {
         const newImages = result.assets
           .filter(a => a.base64)
           .map(a => `data:image/jpeg;base64,${a.base64}`);
-        setSelectedImages(prev => [...prev, ...newImages].slice(0, 6));
+        setSelectedImages(prev => [...prev, ...newImages].slice(0, 60));
         setMode('review');
       }
     } catch (e) {
@@ -450,7 +450,7 @@ export default function AnalyzeScreen() {
       const { frames } = await extractRes.json();
       if (frames && frames.length > 0) {
         const frameImages = frames.map((f: string) => `data:image/jpeg;base64,${f}`);
-        setSelectedImages(prev => [...prev, ...frameImages].slice(0, 6));
+        setSelectedImages(prev => [...prev, ...frameImages].slice(0, 60));
       }
     } catch (e) {
       console.error('Frame extraction error:', e);

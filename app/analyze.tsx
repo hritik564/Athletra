@@ -297,7 +297,14 @@ export default function AnalyzeScreen() {
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [captureProgress, setCaptureProgress] = useState(0);
   const cameraRef = useRef<CameraView>(null);
+  const captureIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const captureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTakingPictureRef = useRef(false);
+  const videoRef = useRef<any>(null);
+  const mediaStreamRef = useRef<any>(null);
   const player = useAudioPlayer(audioUri);
 
   useEffect(() => {
@@ -328,10 +335,50 @@ export default function AnalyzeScreen() {
     };
   }, [player]);
 
+  useEffect(() => {
+    if (Platform.OS !== 'web' || mode !== 'camera') return;
+    let active = true;
+    navigator.mediaDevices?.getUserMedia({
+      video: { facingMode: facing === 'back' ? 'environment' : 'user' },
+      audio: false,
+    }).then(stream => {
+      if (!active) { stream.getTracks().forEach(t => t.stop()); return; }
+      mediaStreamRef.current = stream;
+      if (videoRef.current) videoRef.current.srcObject = stream;
+    }).catch(e => console.error('getUserMedia error:', e));
+    return () => {
+      active = false;
+      mediaStreamRef.current?.getTracks().forEach((t: any) => t.stop());
+      mediaStreamRef.current = null;
+    };
+  }, [mode, facing]);
+
+  useEffect(() => {
+    return () => {
+      if (captureIntervalRef.current) clearInterval(captureIntervalRef.current);
+      if (captureTimerRef.current) clearTimeout(captureTimerRef.current);
+      if (Platform.OS === 'web') mediaStreamRef.current?.getTracks().forEach((t: any) => t.stop());
+    };
+  }, []);
+
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
   const bottomInset = insets.bottom || (Platform.OS === 'web' ? 34 : 0);
 
   const takePhoto = async () => {
+    if (Platform.OS === 'web') {
+      const video = videoRef.current;
+      if (!video || !video.videoWidth) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      setSelectedImages(prev => [...prev, dataUrl]);
+      setMode('review');
+      return;
+    }
     if (!cameraRef.current) return;
     try {
       const photo = await cameraRef.current.takePictureAsync({
@@ -348,24 +395,59 @@ export default function AnalyzeScreen() {
     }
   };
 
-  const startVideoRecording = async () => {
-    if (Platform.OS === 'web') return;
+  const captureFrameWeb = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+    setSelectedImages(prev => [...prev, canvas.toDataURL('image/jpeg', 0.65)].slice(0, 60));
+  };
+
+  const captureFrameNative = async () => {
+    if (!cameraRef.current || isTakingPictureRef.current) return;
+    isTakingPictureRef.current = true;
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      setMode('select');
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['videos'],
-        videoMaxDuration: 15,
-        quality: 0.7,
-      });
-      if (!result.canceled && result.assets.length > 0) {
-        const asset = result.assets[0];
-        setVideoUri(asset.uri);
-        await extractFramesFromVideo(asset.uri);
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.5, base64: true, skipProcessing: true });
+      if (photo?.base64) {
+        setSelectedImages(prev => [...prev, `data:image/jpeg;base64,${photo.base64}`].slice(0, 60));
       }
-    } catch (e) {
-      console.error('Failed to record video:', e);
+    } catch {} finally {
+      isTakingPictureRef.current = false;
     }
+  };
+
+  const CAPTURE_DURATION = 15000;
+
+  const startLiveCapture = () => {
+    setIsCapturing(true);
+    setSelectedImages([]);
+    setCaptureProgress(0);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    const startTime = Date.now();
+    const interval = Platform.OS === 'web' ? 400 : 1000;
+    captureIntervalRef.current = setInterval(async () => {
+      const elapsed = Date.now() - startTime;
+      setCaptureProgress(Math.min(100, (elapsed / CAPTURE_DURATION) * 100));
+      if (Platform.OS === 'web') {
+        captureFrameWeb();
+      } else {
+        await captureFrameNative();
+      }
+    }, interval);
+    captureTimerRef.current = setTimeout(() => stopLiveCapture(), CAPTURE_DURATION);
+  };
+
+  const stopLiveCapture = () => {
+    if (captureIntervalRef.current) { clearInterval(captureIntervalRef.current); captureIntervalRef.current = null; }
+    if (captureTimerRef.current) { clearTimeout(captureTimerRef.current); captureTimerRef.current = null; }
+    setIsCapturing(false);
+    setCaptureProgress(100);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setMode('review');
   };
 
   const pickFromGallery = async () => {
@@ -701,6 +783,10 @@ export default function AnalyzeScreen() {
   };
 
   const resetAll = () => {
+    if (captureIntervalRef.current) { clearInterval(captureIntervalRef.current); captureIntervalRef.current = null; }
+    if (captureTimerRef.current) { clearTimeout(captureTimerRef.current); captureTimerRef.current = null; }
+    setIsCapturing(false);
+    setCaptureProgress(0);
     if (player) {
       try { player.pause(); } catch {}
     }
@@ -764,6 +850,77 @@ export default function AnalyzeScreen() {
       );
     }
 
+    const cameraOverlayContent = (
+      <>
+        <View style={[styles.cameraOverlay, { paddingTop: (insets.top || webTopInset) + 8 }]}>
+          <View style={styles.cameraTopBar}>
+            <Pressable style={styles.cameraBtn} onPress={() => { if (isCapturing) stopLiveCapture(); else setMode('select'); }}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </Pressable>
+            <View style={styles.captureHintBox}>
+              {isCapturing ? (
+                <Text style={styles.captureHintText}>
+                  {selectedImages.length} frames · {Math.round((1 - captureProgress / 100) * 15)}s
+                </Text>
+              ) : (
+                <Text style={styles.captureHintText}>Hold to capture or tap photo</Text>
+              )}
+            </View>
+            <Pressable style={styles.cameraBtn} onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}>
+              <Ionicons name="camera-reverse" size={24} color="#fff" />
+            </Pressable>
+          </View>
+          {isCapturing && (
+            <View style={styles.progressBarTrack}>
+              <View style={[styles.progressBarFill, { width: `${captureProgress}%` as any }]} />
+            </View>
+          )}
+        </View>
+
+        <View style={[styles.cameraBottomBar, { paddingBottom: bottomInset + 16 }]}>
+          <View style={styles.cameraControls}>
+            {!isCapturing && (
+              <Pressable style={styles.cameraSecondaryBtn} onPress={takePhoto}>
+                <Ionicons name="camera" size={22} color="#fff" />
+              </Pressable>
+            )}
+
+            {isCapturing ? (
+              <Pressable style={styles.stopRecBtn} onPress={stopLiveCapture}>
+                <View style={styles.stopRecInner} />
+              </Pressable>
+            ) : (
+              <Pressable style={styles.shutterBtn} onPress={startLiveCapture}>
+                <View style={[styles.shutterInner, { backgroundColor: '#E74C3C' }]} />
+              </Pressable>
+            )}
+
+            {selectedImages.length > 0 && !isCapturing && (
+              <Pressable style={styles.cameraSecondaryBtn} onPress={() => setMode('review')}>
+                <Ionicons name="arrow-forward" size={22} color="#fff" />
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </>
+    );
+
+    if (Platform.OS === 'web') {
+      return (
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          {/* @ts-ignore - native web video element */}
+          <video
+            ref={videoRef}
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' } as any}
+            autoPlay
+            muted
+            playsInline
+          />
+          {cameraOverlayContent}
+        </View>
+      );
+    }
+
     return (
       <View style={{ flex: 1 }}>
         <CameraView
@@ -772,43 +929,7 @@ export default function AnalyzeScreen() {
           facing={facing}
           mode="video"
         />
-
-        <View style={[styles.cameraOverlay, { paddingTop: (insets.top || webTopInset) + 8 }]}>
-          <View style={styles.cameraTopBar}>
-            <Pressable style={styles.cameraBtn} onPress={() => setMode('select')}>
-              <Ionicons name="close" size={24} color="#fff" />
-            </Pressable>
-            <Pressable style={styles.cameraBtn} onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}>
-              <Ionicons name="camera-reverse" size={24} color="#fff" />
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={[styles.cameraBottomBar, { paddingBottom: bottomInset + 16 }]}>
-          {selectedImages.length > 0 && (
-            <View style={styles.capturedCount}>
-              <Text style={styles.capturedCountText}>{selectedImages.length} captured</Text>
-            </View>
-          )}
-
-          <View style={styles.cameraControls}>
-            {Platform.OS !== 'web' && (
-              <Pressable style={styles.cameraSecondaryBtn} onPress={startVideoRecording}>
-                <Ionicons name="videocam" size={22} color="#fff" />
-              </Pressable>
-            )}
-
-            <Pressable style={styles.shutterBtn} onPress={takePhoto}>
-              <View style={styles.shutterInner} />
-            </Pressable>
-
-            {selectedImages.length > 0 && (
-              <Pressable style={styles.cameraSecondaryBtn} onPress={() => setMode('review')}>
-                <Ionicons name="arrow-forward" size={22} color="#fff" />
-              </Pressable>
-            )}
-          </View>
-        </View>
+        {cameraOverlayContent}
       </View>
     );
   };
@@ -1759,6 +1880,24 @@ const createStyles = (C: any) => StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   shutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#fff' },
+  stopRecBtn: {
+    width: 72, height: 72, borderRadius: 36, borderWidth: 4, borderColor: '#E74C3C',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  stopRecInner: { width: 30, height: 30, borderRadius: 4, backgroundColor: '#E74C3C' },
+  captureHintBox: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+  },
+  captureHintText: {
+    fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: 'rgba(255,255,255,0.85)',
+    backgroundColor: 'rgba(0,0,0,0.35)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10,
+  },
+  progressBarTrack: {
+    height: 3, backgroundColor: 'rgba(255,255,255,0.2)', marginTop: 8, marginHorizontal: 20, borderRadius: 2,
+  },
+  progressBarFill: {
+    height: 3, backgroundColor: '#E74C3C', borderRadius: 2,
+  },
   reviewBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20,

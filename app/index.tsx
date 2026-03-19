@@ -815,7 +815,6 @@ export default function OnboardingScreen() {
               {step > 0
                 ? <Pressable onPress={handleBack} hitSlop={12}><Ionicons name="chevron-back" size={24} color={Colors.text} /></Pressable>
                 : <View style={{ width:24 }} />}
-              <Text style={styles.headerBrand}>athletra</Text>
               <View style={{ width:40 }} />
             </View>
             <ChapterProgressBar step={step} sport={sport} Colors={Colors} />

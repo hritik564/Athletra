@@ -385,6 +385,80 @@ export default function OnboardingScreen() {
 
   // ── Step Renderers ────────────────────────────────────────────────────────
 
+  // ── Vitals validation helpers ────────────────────────────────────────────
+  const handleNameChange = (v: string) => {
+    const letters = v.replace(/[^a-zA-Z\s'-]/g, '');
+    if (letters.length <= 30) setName(letters);
+  };
+
+  const handleAgeChange = (v: string) => {
+    const digits = v.replace(/[^0-9]/g, '');
+    if (digits === '') { setAge(''); return; }
+    const n = parseInt(digits);
+    if (n > 100) setAge('100');
+    else setAge(digits);
+  };
+
+  const handleHeightCmChange = (v: string) => {
+    const digits = v.replace(/[^0-9]/g, '');
+    if (digits === '') { setHeightCm(''); return; }
+    const n = parseInt(digits);
+    if (n > 250) setHeightCm('250');
+    else setHeightCm(digits);
+  };
+
+  const handleHeightFtChange = (v: string) => {
+    const digits = v.replace(/[^0-9]/g, '');
+    if (digits === '') { setHeightFt(''); return; }
+    const n = parseInt(digits);
+    if (n > 8) setHeightFt('8');
+    else setHeightFt(digits);
+  };
+
+  const handleHeightInChange = (v: string) => {
+    const digits = v.replace(/[^0-9]/g, '');
+    if (digits === '') { setHeightIn(''); return; }
+    const n = parseInt(digits);
+    if (n > 11) setHeightIn('11');
+    else setHeightIn(digits);
+  };
+
+  const handleWeightKgChange = (v: string) => {
+    const clean = v.replace(/[^0-9.]/g, '');
+    if (clean === '') { setWeightKg(''); return; }
+    const n = parseFloat(clean);
+    if (n > 180) setWeightKg('180');
+    else setWeightKg(clean);
+  };
+
+  const handleWeightLbsChange = (v: string) => {
+    const clean = v.replace(/[^0-9.]/g, '');
+    if (clean === '') { setWeightLbs(''); return; }
+    const n = parseFloat(clean);
+    if (n > 397) setWeightLbs('397');
+    else setWeightLbs(clean);
+  };
+
+  const vitalsValid = (): boolean => {
+    if (name.trim().length === 0) return false;
+    const a = parseInt(age);
+    if (isNaN(a) || a < 5 || a > 100) return false;
+    if (unitSystem === 'metric') {
+      const h = parseInt(heightCm);
+      const w = parseFloat(weightKg);
+      if (isNaN(h) || h < 50 || h > 250) return false;
+      if (isNaN(w) || w < 20 || w > 180) return false;
+    } else {
+      const ft = parseInt(heightFt);
+      const inc = parseInt(heightIn);
+      const lbs = parseFloat(weightLbs);
+      if (isNaN(ft) || ft < 1 || ft > 8) return false;
+      if (isNaN(inc) || inc < 0 || inc > 11) return false;
+      if (isNaN(lbs) || lbs < 44 || lbs > 397) return false;
+    }
+    return true;
+  };
+
   const renderVitals = () => (
     <ScrollView
       contentContainerStyle={styles.stepContent}
@@ -399,79 +473,115 @@ export default function OnboardingScreen() {
 
       <UnitToggle value={unitSystem} onChange={toggleUnit} Colors={Colors} />
 
+      {/* Name */}
       <View style={styles.field}>
-        <Text style={styles.fieldLabel}>Full Name</Text>
+        <View style={styles.fieldLabelRow}>
+          <Text style={styles.fieldLabel}>Full Name</Text>
+          <Text style={styles.fieldCounter}>{name.length}/30</Text>
+        </View>
         <TextInput
           style={styles.input}
           placeholder="Enter your name"
           placeholderTextColor={Colors.textMuted}
           value={name}
-          onChangeText={setName}
+          onChangeText={handleNameChange}
           autoCapitalize="words"
           returnKeyType="next"
+          maxLength={30}
         />
       </View>
 
+      {/* Age */}
       <View style={styles.field}>
-        <Text style={styles.fieldLabel}>Age</Text>
+        <View style={styles.fieldLabelRow}>
+          <Text style={styles.fieldLabel}>Age</Text>
+          <Text style={styles.fieldHint}>5 – 100 years</Text>
+        </View>
         <TextInput
           style={styles.input}
           placeholder="25"
           placeholderTextColor={Colors.textMuted}
           value={age}
-          onChangeText={setAge}
+          onChangeText={handleAgeChange}
           keyboardType="number-pad"
+          maxLength={3}
         />
       </View>
 
-      <View style={styles.rowFields}>
-        <View style={[styles.field, { flex: 1 }]}>
-          <Text style={styles.fieldLabel}>
-            Height {unitSystem === 'metric' ? '(cm)' : '(ft / in)'}
+      {/* Height */}
+      <View style={styles.field}>
+        <View style={styles.fieldLabelRow}>
+          <Text style={styles.fieldLabel}>Height</Text>
+          <Text style={styles.fieldHint}>
+            {unitSystem === 'metric' ? 'max 250 cm' : 'max 8 ft 2 in'}
           </Text>
-          {unitSystem === 'metric' ? (
+        </View>
+        {unitSystem === 'metric' ? (
+          <View style={styles.inputWithUnit}>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { flex: 1 }]}
               placeholder="170"
               placeholderTextColor={Colors.textMuted}
               value={heightCm}
-              onChangeText={setHeightCm}
+              onChangeText={handleHeightCmChange}
               keyboardType="number-pad"
+              maxLength={3}
             />
-          ) : (
-            <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={styles.unitBadge}>
+              <Text style={styles.unitBadgeText}>cm</Text>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.ftInRow}>
+            <View style={styles.ftInField}>
               <TextInput
-                style={[styles.input, { flex: 1 }]}
+                style={styles.input}
                 placeholder="5"
                 placeholderTextColor={Colors.textMuted}
                 value={heightFt}
-                onChangeText={setHeightFt}
+                onChangeText={handleHeightFtChange}
                 keyboardType="number-pad"
+                maxLength={1}
               />
+              <Text style={styles.ftInLabel}>ft</Text>
+            </View>
+            <View style={styles.ftInField}>
               <TextInput
-                style={[styles.input, { flex: 1 }]}
+                style={styles.input}
                 placeholder="7"
                 placeholderTextColor={Colors.textMuted}
                 value={heightIn}
-                onChangeText={setHeightIn}
+                onChangeText={handleHeightInChange}
                 keyboardType="number-pad"
+                maxLength={2}
               />
+              <Text style={styles.ftInLabel}>in</Text>
             </View>
-          )}
-        </View>
+          </View>
+        )}
+      </View>
 
-        <View style={[styles.field, { flex: 1 }]}>
-          <Text style={styles.fieldLabel}>
-            Weight {unitSystem === 'metric' ? '(kg)' : '(lbs)'}
+      {/* Weight */}
+      <View style={styles.field}>
+        <View style={styles.fieldLabelRow}>
+          <Text style={styles.fieldLabel}>Weight</Text>
+          <Text style={styles.fieldHint}>
+            {unitSystem === 'metric' ? 'max 180 kg' : 'max 397 lbs'}
           </Text>
+        </View>
+        <View style={styles.inputWithUnit}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { flex: 1 }]}
             placeholder={unitSystem === 'metric' ? '70' : '154'}
             placeholderTextColor={Colors.textMuted}
             value={unitSystem === 'metric' ? weightKg : weightLbs}
-            onChangeText={unitSystem === 'metric' ? setWeightKg : setWeightLbs}
+            onChangeText={unitSystem === 'metric' ? handleWeightKgChange : handleWeightLbsChange}
             keyboardType="decimal-pad"
+            maxLength={6}
           />
+          <View style={styles.unitBadge}>
+            <Text style={styles.unitBadgeText}>{unitSystem === 'metric' ? 'kg' : 'lbs'}</Text>
+          </View>
         </View>
       </View>
     </ScrollView>
@@ -654,8 +764,8 @@ export default function OnboardingScreen() {
 
   const canGoNext = (): boolean => {
     switch (step) {
-      case 0: return name.trim().length > 0;
-      case 1: return true; // sport is optional
+      case 0: return vitalsValid();
+      case 1: return true;
       case 2: return true;
       case 3: return true;
       default: return false;
@@ -699,11 +809,7 @@ export default function OnboardingScreen() {
                 </Pressable>
               ) : <View style={{ width: 24 }} />}
               <Text style={styles.headerBrand}>athletra</Text>
-              {step < TOTAL_STEPS - 1 ? (
-                <Pressable onPress={handleNext} hitSlop={12}>
-                  <Text style={styles.skipText}>Skip</Text>
-                </Pressable>
-              ) : <View style={{ width: 40 }} />}
+              <View style={{ width: 40 }} />
             </View>
             <ProgressBar step={step} Colors={Colors} />
           </>
@@ -768,10 +874,20 @@ function createStyles(C: any) {
       fontSize: 14, fontFamily: 'Outfit_400Regular',
       color: C.textSecondary, textAlign: 'center', marginBottom: 24, lineHeight: 20,
     },
-    field: { marginBottom: 14 },
+    field: { marginBottom: 16 },
+    fieldLabelRow: {
+      flexDirection: 'row', justifyContent: 'space-between',
+      alignItems: 'center', marginBottom: 6,
+    },
     fieldLabel: {
       fontSize: 13, fontFamily: 'Outfit_600SemiBold',
-      color: C.textSecondary, marginBottom: 6,
+      color: C.textSecondary,
+    },
+    fieldCounter: {
+      fontSize: 11, fontFamily: 'Outfit_500Medium', color: C.textMuted,
+    },
+    fieldHint: {
+      fontSize: 11, fontFamily: 'Outfit_500Medium', color: C.textMuted,
     },
     rowFields: { flexDirection: 'row', gap: 12 },
     input: {
@@ -779,6 +895,27 @@ function createStyles(C: any) {
       backgroundColor: C.surface, color: C.text,
       fontSize: 15, fontFamily: 'Outfit_500Medium',
       borderWidth: 1, borderColor: C.border,
+    },
+    inputWithUnit: {
+      flexDirection: 'row', alignItems: 'center', gap: 10,
+    },
+    unitBadge: {
+      height: 50, paddingHorizontal: 16, borderRadius: 14,
+      backgroundColor: C.surfaceLight, borderWidth: 1, borderColor: C.border,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    unitBadgeText: {
+      fontSize: 14, fontFamily: 'Outfit_700Bold', color: C.textSecondary,
+    },
+    ftInRow: {
+      flexDirection: 'row', gap: 12,
+    },
+    ftInField: {
+      flex: 1, gap: 6,
+    },
+    ftInLabel: {
+      fontSize: 12, fontFamily: 'Outfit_600SemiBold',
+      color: C.textMuted, textAlign: 'center', marginTop: 4,
     },
     sportGrid: {
       flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 8,

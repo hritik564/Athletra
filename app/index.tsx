@@ -45,14 +45,6 @@ const SPORTS_PRIMARY = [
   },
 ];
 
-const SPORTS_MORE = [
-  { key: 'football', label: 'Football', icon: 'football' as const },
-  { key: 'basketball', label: 'Basketball', icon: 'basketball' as const },
-  { key: 'tennis', label: 'Tennis', icon: 'tennisball-outline' as const },
-  { key: 'swimming', label: 'Swimming', icon: 'water' as const },
-  { key: 'running', label: 'Running', icon: 'walk' as const },
-  { key: 'other', label: 'Other', icon: 'ellipsis-horizontal' as const },
-];
 
 const PLAY_LEVELS = [
   { key: 'beginner', label: 'Beginner', sub: 'Learning the fundamentals', badge: '🌱' },
@@ -277,7 +269,6 @@ export default function OnboardingScreen() {
 
   // Step 1 – Sport
   const [sport, setSport] = useState('');
-  const [showMoreSports, setShowMoreSports] = useState(false);
 
   // Step 2 – Stance
   const [leadHand, setLeadHand] = useState<'left' | 'right'>('right');
@@ -525,31 +516,6 @@ export default function OnboardingScreen() {
           );
         })}
       </View>
-
-      <Pressable
-        onPress={() => setShowMoreSports(v => !v)}
-        style={styles.moreSportsToggle}
-      >
-        <Text style={styles.moreSportsText}>
-          {showMoreSports ? 'Show less' : 'More sports'}
-        </Text>
-        <Ionicons name={showMoreSports ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.primary} />
-      </Pressable>
-
-      {showMoreSports && (
-        <View style={styles.moreSportsGrid}>
-          {SPORTS_MORE.map(s => (
-            <Pressable
-              key={s.key}
-              onPress={() => { setSport(s.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-              style={[styles.miniSportCard, sport === s.key && styles.miniSportCardActive]}
-            >
-              <Ionicons name={s.icon} size={20} color={sport === s.key ? Colors.primary : Colors.textMuted} />
-              <Text style={[styles.miniSportLabel, sport === s.key && { color: Colors.primary }]}>{s.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
     </ScrollView>
   );
 

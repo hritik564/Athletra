@@ -67,24 +67,53 @@ const PRIMARY_GOALS = [
   { key: 'weight_loss',label: 'Weight Loss',icon: 'flame' as const,     desc: 'Lean out, stay athletic' },
 ];
 
+// ─── Yoga overrides ─────────────────────────────────────────────────────────────
+const YOGA_LEVELS = [
+  { key: 'beginner',     label: 'New to Yoga',           sub: 'Building foundational poses',           badge: '🌱' },
+  { key: 'intermediate', label: 'Consistent Practitioner',sub: 'Regular practice, exploring depth',     badge: '🧘' },
+  { key: 'advanced',     label: 'Advanced / Instructor',  sub: 'Teaching or advanced sequences',        badge: '🏆' },
+];
+const YOGA_GOALS = [
+  { key: 'flexibility',     label: 'Flexibility',        icon: 'body' as const,     desc: 'Expand range & mobility' },
+  { key: 'core_balance',    label: 'Core & Balance',     icon: 'fitness' as const,  desc: 'Strength from center' },
+  { key: 'stress_reduction',label: 'Stress Reduction',   icon: 'leaf' as const,     desc: 'Calm & mindfulness' },
+  { key: 'injury_recovery', label: 'Injury Recovery',    icon: 'heart' as const,    desc: 'Heal & restore' },
+];
+
+// ─── Spin types ─────────────────────────────────────────────────────────────────
+const SPIN_TYPES = [
+  { key: 'off_break',          label: 'Off-Break',           desc: 'Right-arm, turns away from right-hander' },
+  { key: 'leg_break',          label: 'Leg-Break',           desc: 'Right-arm, turns into right-hander' },
+  { key: 'left_arm_orthodox',  label: 'Left-Arm Orthodox',   desc: 'Left-arm, turns away from left-hander' },
+  { key: 'left_arm_chinaman',  label: 'Left-Arm Chinaman',   desc: 'Left-arm, turns into right-hander' },
+];
+
+// ─── Note validation ────────────────────────────────────────────────────────────
+function validateNote(s: string): boolean {
+  if (!s || s.trim().length < 3) return false;
+  return /[a-zA-Z]/.test(s.trim());
+}
+
 // ─── Cricket helpers ────────────────────────────────────────────────────────────
 function calcBatSize(h: number) { if (h<137) return 1; if (h<149) return 2; if (h<155) return 3; if (h<163) return 4; if (h<170) return 5; return 6; }
 
 function buildSportData(
   sport: string, heightCm: number,
-  cricketRole: string, bowlingArm: 'left'|'right', bowlingStyle: string,
+  cricketRole: string, bowlingArm: 'left'|'right', bowlingStyle: string, spinType: string,
 ): Record<string,any> {
   if (sport === 'cricket') {
     const isBowler = ['bowler','all_rounder'].includes(cricketRole);
     const isBatter = ['batter','all_rounder'].includes(cricketRole);
+    const isSpin   = bowlingStyle === 'spin';
     return {
       cricket: {
-        player_role:   cricketRole || 'batter',
+        player_role: cricketRole || 'batter',
         ...(isBatter ? { bat_size: { value: calcBatSize(heightCm), confidence: 0.7, source: 'height_calc' },
                          bat_weight: { value: 1200, confidence: 0.6, source: 'default' },
                          batting_guard: { value: 'middle', confidence: 0.6, source: 'default' } } : {}),
         ...(isBowler ? { bowling_arm: bowlingArm,
-                         bowling_style: bowlingStyle || 'pace' } : {}),
+                         bowling_style: bowlingStyle || 'pace',
+                         ...(isSpin && spinType ? { spin_type: spinType } : {}) } : {}),
       },
     };
   }
@@ -144,22 +173,24 @@ function UnitToggle({ value, onChange, Colors }: { value: 'metric'|'imperial'; o
 }
 
 // ─── Profile Strength Screen ───────────────────────────────────────────────────
-function ProfileStrengthScreen({ Colors, styles, heightCm, weightKg, sport, leadHand, onLaunch }: {
+function ProfileStrengthScreen({ Colors, styles, heightCm, weightKg, sport, leadHand, score, extraItems, onLaunch }: {
   Colors: any; styles: any; heightCm: number; weightKg: number;
-  sport: string; leadHand: 'left'|'right'; onLaunch: () => void;
+  sport: string; leadHand: 'left'|'right'; score: number; extraItems: string[]; onLaunch: () => void;
 }) {
   const strengthAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(strengthAnim, { toValue: 0.75, duration: 1200, useNativeDriver: false }).start();
+    Animated.timing(strengthAnim, { toValue: score / 100, duration: 1400, useNativeDriver: false }).start();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, []);
   const barWidth = strengthAnim.interpolate({ inputRange:[0,1], outputRange:['0%','100%'] });
-  const done = [
+  const tier = score >= 85 ? 'Elite Calibration Active' : score >= 70 ? 'Advanced Calibration Active' : 'Basic Calibration Active';
+  const baseDone = [
     `Height & weight calibrated (${heightCm} cm, ${weightKg} kg)`,
     `Primary sport: ${sport ? sport.charAt(0).toUpperCase()+sport.slice(1) : 'General'}`,
     `${leadHand === 'left' ? 'Left' : 'Right'}-hand stance locked in`,
     'Health & safety baseline complete',
     'Nutritional profile saved',
+    ...extraItems,
   ];
   return (
     <ScrollView contentContainerStyle={[styles.stepContent, { paddingBottom: 40 }]} showsVerticalScrollIndicator={false}>
@@ -171,15 +202,15 @@ function ProfileStrengthScreen({ Colors, styles, heightCm, weightKg, sport, lead
       <View style={styles.strengthCard}>
         <View style={{ flexDirection:'row', justifyContent:'space-between', marginBottom: 8 }}>
           <Text style={styles.strengthLabel}>Calibration Score</Text>
-          <Text style={styles.strengthPercent}>75%</Text>
+          <Text style={styles.strengthPercent}>{score}%</Text>
         </View>
         <View style={styles.strengthTrack}>
           <Animated.View style={[styles.strengthFill, { width: barWidth }]} />
         </View>
-        <Text style={styles.strengthNote}>Basic Calibration Active</Text>
+        <Text style={styles.strengthNote}>{tier}</Text>
       </View>
       <View style={styles.doneList}>
-        {done.map((item, i) => (
+        {baseDone.map((item, i) => (
           <View key={i} style={styles.doneItem}>
             <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
             <Text style={styles.doneText}>{item}</Text>
@@ -228,11 +259,14 @@ export default function OnboardingScreen() {
   const [cricketRole, setCricketRole] = useState('');
   const [bowlingArm, setBowlingArm] = useState<'left'|'right'>('right');
   const [bowlingStyle, setBowlingStyle] = useState('');
+  const [spinType, setSpinType] = useState('');
 
   // Chapter 2 – Health
   const [conditions, setConditions] = useState<string[]>([]);
   const [injuries, setInjuries] = useState<string[]>([]);
   const [injuryStatus, setInjuryStatus] = useState<Record<string,'active'|'past'>>({});
+  const [otherHealthNotes, setOtherHealthNotes] = useState('');
+  const [otherInjuryNotes, setOtherInjuryNotes] = useState('');
   // Chapter 2 – Nutrition
   const [dietaryPref, setDietaryPref] = useState('');
   const [selectedAllergies, setSelectedAllergies] = useState<string[]>([]);
@@ -267,9 +301,12 @@ export default function OnboardingScreen() {
         if (s.cricketRole)      setCricketRole(s.cricketRole);
         if (s.bowlingArm)       setBowlingArm(s.bowlingArm);
         if (s.bowlingStyle)     setBowlingStyle(s.bowlingStyle);
+        if (s.spinType)         setSpinType(s.spinType);
         if (s.conditions)       setConditions(s.conditions);
         if (s.injuries)         setInjuries(s.injuries);
         if (s.injuryStatus)     setInjuryStatus(s.injuryStatus);
+        if (s.otherHealthNotes) setOtherHealthNotes(s.otherHealthNotes);
+        if (s.otherInjuryNotes) setOtherInjuryNotes(s.otherInjuryNotes);
         if (s.dietaryPref)      setDietaryPref(s.dietaryPref);
         if (s.selectedAllergies)setSelectedAllergies(s.selectedAllergies);
         if (s.customAllergy)    setCustomAllergy(s.customAllergy);
@@ -282,13 +319,15 @@ export default function OnboardingScreen() {
   const persist = useCallback(async (nextStep: number) => {
     await AsyncStorage.setItem(PERSIST_KEY, JSON.stringify({
       step: nextStep, name, age, unitSystem, heightCm, heightFt, heightIn, weightKg, weightLbs,
-      sport, leadHand, cricketRole, bowlingArm, bowlingStyle,
-      conditions, injuries, injuryStatus, dietaryPref, selectedAllergies, customAllergy,
+      sport, leadHand, cricketRole, bowlingArm, bowlingStyle, spinType,
+      conditions, injuries, injuryStatus, otherHealthNotes, otherInjuryNotes,
+      dietaryPref, selectedAllergies, customAllergy,
       skillLevel, fitnessGoal,
     }));
   }, [name, age, unitSystem, heightCm, heightFt, heightIn, weightKg, weightLbs,
-      sport, leadHand, cricketRole, bowlingArm, bowlingStyle,
-      conditions, injuries, injuryStatus, dietaryPref, selectedAllergies, customAllergy,
+      sport, leadHand, cricketRole, bowlingArm, bowlingStyle, spinType,
+      conditions, injuries, injuryStatus, otherHealthNotes, otherInjuryNotes,
+      dietaryPref, selectedAllergies, customAllergy,
       skillLevel, fitnessGoal]);
 
   // ── Routing ──────────────────────────────────────────────────────────────────
@@ -390,7 +429,10 @@ export default function OnboardingScreen() {
       skillLevel: skillLevel as any,
       fitnessGoal: fitnessGoal as any,
       preferredUnitSystem: unitSystem,
-      sportSpecificData: buildSportData(sport, hCm, cricketRole, bowlingArm, bowlingStyle as any),
+      sportSpecificData: buildSportData(sport, hCm, cricketRole, bowlingArm, bowlingStyle as any, spinType),
+      spinType,
+      otherHealthNotes: validateNote(otherHealthNotes) ? otherHealthNotes.trim() : '',
+      otherInjuryNotes: validateNote(otherInjuryNotes) ? otherInjuryNotes.trim() : '',
       unlockedSports: sport ? [sport] : [],
       isAthlete: !!sport,
       goal: fitnessGoal==='weight_loss' ? 'lose_weight' : 'stay_fit',
@@ -613,6 +655,24 @@ export default function OnboardingScreen() {
               ))}
             </View>
 
+            {bowlingStyle === 'spin' && (
+              <>
+                <Text style={[styles.sectionLabel,{marginTop:20}]}>Spin Type</Text>
+                <Text style={styles.sectionHint}>Used to calibrate wrist angle and release-point models</Text>
+                {SPIN_TYPES.map(st => (
+                  <Pressable key={st.key} onPress={() => { setSpinType(st.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                    style={[styles.levelCard, spinType===st.key && styles.levelCardActive]}>
+                    <Text style={styles.levelBadge}>🌀</Text>
+                    <View style={{ flex:1 }}>
+                      <Text style={[styles.levelName, spinType===st.key && { color: Colors.primary }]}>{st.label}</Text>
+                      <Text style={styles.levelSub}>{st.desc}</Text>
+                    </View>
+                    {spinType===st.key && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />}
+                  </Pressable>
+                ))}
+              </>
+            )}
+
             <View style={styles.proNote}>
               <Ionicons name="sparkles" size={14} color={Colors.primary} />
               <Text style={styles.proNoteText}>Pro Mode: Bat size auto-calculated. Bowling biomechanics model activated.</Text>
@@ -685,6 +745,24 @@ export default function OnboardingScreen() {
           ))}
         </View>
       )}
+
+      <View style={[styles.field,{marginTop:20}]}>
+        <Text style={styles.fieldLabel}>Other medical conditions</Text>
+        <Text style={styles.sectionHint}>Min. 3 characters and must contain letters</Text>
+        <TextInput style={[styles.input,{marginTop:6,height:72,textAlignVertical:'top',paddingTop:12}]}
+          placeholder="e.g. Mild scoliosis, exercise-induced asthma…"
+          placeholderTextColor={Colors.textMuted} multiline
+          value={otherHealthNotes} onChangeText={setOtherHealthNotes} />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.fieldLabel}>Other injury notes</Text>
+        <Text style={styles.sectionHint}>Min. 3 characters and must contain letters</Text>
+        <TextInput style={[styles.input,{marginTop:6,height:72,textAlignVertical:'top',paddingTop:12}]}
+          placeholder="e.g. Old ACL tear — fully recovered, tennis elbow…"
+          placeholderTextColor={Colors.textMuted} multiline
+          value={otherInjuryNotes} onChangeText={setOtherInjuryNotes} />
+      </View>
     </ScrollView>
   );
 
@@ -735,45 +813,95 @@ export default function OnboardingScreen() {
   );
 
   // ── Experience & Goal (step 5) ────────────────────────────────────────────────
-  const renderExperience = () => (
-    <ScrollView contentContainerStyle={styles.stepContent} showsVerticalScrollIndicator={false}>
-      <LinearGradient colors={[Colors.accent, Colors.accentDark]} style={styles.stepIcon}>
-        <Ionicons name="medal" size={32} color="#fff" />
-      </LinearGradient>
-      <Text style={styles.stepTitle}>Experience & Goal</Text>
-      <Text style={styles.stepSub}>Calibrates training intensity and AI feedback depth</Text>
+  const renderExperience = () => {
+    const isYoga = sport === 'yoga';
+    const levels = isYoga ? YOGA_LEVELS : PLAY_LEVELS;
+    const goals  = isYoga ? YOGA_GOALS  : PRIMARY_GOALS;
+    const title  = isYoga ? 'Yoga Journey' : 'Experience & Goal';
+    const sub    = isYoga
+      ? 'Tailors pose sequencing, hold durations, and breathwork guidance'
+      : 'Calibrates training intensity and AI feedback depth';
 
-      <Text style={styles.sectionLabel}>Play Level</Text>
-      {PLAY_LEVELS.map(l => (
-        <Pressable key={l.key} onPress={() => { setSkillLevel(l.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-          style={[styles.levelCard, skillLevel===l.key && styles.levelCardActive]}>
-          <Text style={styles.levelBadge}>{l.badge}</Text>
-          <View style={{ flex:1 }}>
-            <Text style={[styles.levelName, skillLevel===l.key && { color: Colors.primary }]}>{l.label}</Text>
-            <Text style={styles.levelSub}>{l.sub}</Text>
-          </View>
-          {skillLevel===l.key && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />}
-        </Pressable>
-      ))}
+    return (
+      <ScrollView contentContainerStyle={styles.stepContent} showsVerticalScrollIndicator={false}>
+        <LinearGradient colors={isYoga ? ['#6A1B9A','#7B1FA2'] : [Colors.accent, Colors.accentDark]} style={styles.stepIcon}>
+          <Ionicons name={isYoga ? 'body' : 'medal'} size={32} color="#fff" />
+        </LinearGradient>
+        <Text style={styles.stepTitle}>{title}</Text>
+        <Text style={styles.stepSub}>{sub}</Text>
 
-      <Text style={[styles.sectionLabel,{marginTop:20}]}>Primary Goal</Text>
-      <View style={styles.goalRow}>
-        {PRIMARY_GOALS.map(g => (
-          <Pressable key={g.key} onPress={() => { setFitnessGoal(g.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-            style={[styles.goalCard, fitnessGoal===g.key && styles.goalCardActive]}>
-            <Ionicons name={g.icon} size={24} color={fitnessGoal===g.key ? Colors.primary : Colors.textMuted} />
-            <Text style={[styles.goalLabel, fitnessGoal===g.key && { color: Colors.primary }]}>{g.label}</Text>
-            <Text style={styles.goalDesc}>{g.desc}</Text>
+        <Text style={styles.sectionLabel}>{isYoga ? 'Practice Level' : 'Play Level'}</Text>
+        {levels.map(l => (
+          <Pressable key={l.key} onPress={() => { setSkillLevel(l.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            style={[styles.levelCard, skillLevel===l.key && styles.levelCardActive]}>
+            <Text style={styles.levelBadge}>{l.badge}</Text>
+            <View style={{ flex:1 }}>
+              <Text style={[styles.levelName, skillLevel===l.key && { color: Colors.primary }]}>{l.label}</Text>
+              <Text style={styles.levelSub}>{l.sub}</Text>
+            </View>
+            {skillLevel===l.key && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />}
           </Pressable>
         ))}
-      </View>
-    </ScrollView>
-  );
+
+        <Text style={[styles.sectionLabel,{marginTop:20}]}>Primary Goal</Text>
+        <View style={[styles.goalRow, isYoga && { flexWrap:'wrap' }]}>
+          {goals.map(g => (
+            <Pressable key={g.key} onPress={() => { setFitnessGoal(g.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              style={[styles.goalCard, fitnessGoal===g.key && styles.goalCardActive, isYoga && { width: (width-72)/2 }]}>
+              <Ionicons name={g.icon} size={24} color={fitnessGoal===g.key ? Colors.primary : Colors.textMuted} />
+              <Text style={[styles.goalLabel, fitnessGoal===g.key && { color: Colors.primary }]}>{g.label}</Text>
+              <Text style={styles.goalDesc}>{g.desc}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </ScrollView>
+    );
+  };
+
+  const calcProfileScore = (): number => {
+    let score = 60; // base: all required steps complete
+    // Cricket sub-branches
+    if (sport === 'cricket') {
+      if (cricketRole) score += 5;
+      if (bowlingStyle === 'spin' && ['bowler','all_rounder'].includes(cricketRole) && spinType) score += 8;
+    }
+    // Yoga-specific goal selected
+    if (sport === 'yoga' && YOGA_GOALS.some(g => g.key === fitnessGoal)) score += 8;
+    // Health notes provided and valid
+    if (validateNote(otherHealthNotes)) score += 5;
+    if (validateNote(otherInjuryNotes)) score += 4;
+    // Dietary preference filled
+    if (dietaryPref) score += 5;
+    // Custom allergy detail
+    if (customAllergy.trim().length >= 3 || selectedAllergies.length > 0) score += 3;
+    return Math.min(score, 95);
+  };
+
+  const buildExtraItems = (): string[] => {
+    const items: string[] = [];
+    if (sport === 'cricket' && cricketRole) {
+      const roleLabel = CRICKET_ROLES.find(r => r.key === cricketRole)?.label ?? cricketRole;
+      items.push(`Cricket role: ${roleLabel}`);
+      if (bowlingStyle === 'spin' && spinType) {
+        const stLabel = SPIN_TYPES.find(s => s.key === spinType)?.label ?? spinType;
+        items.push(`Spin type: ${stLabel}`);
+      }
+    }
+    if (sport === 'yoga' && YOGA_GOALS.some(g => g.key === fitnessGoal)) {
+      const gLabel = YOGA_GOALS.find(g => g.key === fitnessGoal)?.label ?? fitnessGoal;
+      items.push(`Yoga goal: ${gLabel}`);
+    }
+    if (validateNote(otherHealthNotes)) items.push('Custom health notes recorded');
+    if (validateNote(otherInjuryNotes)) items.push('Custom injury notes recorded');
+    return items;
+  };
 
   const renderProfileStrength = () => (
     <ProfileStrengthScreen Colors={Colors} styles={styles}
       heightCm={Math.round(getHCm())} weightKg={Math.round(getWKg())}
-      sport={sport} leadHand={leadHand} onLaunch={handleComplete} />
+      sport={sport} leadHand={leadHand}
+      score={calcProfileScore()} extraItems={buildExtraItems()}
+      onLaunch={handleComplete} />
   );
 
   // ── Navigation ────────────────────────────────────────────────────────────────

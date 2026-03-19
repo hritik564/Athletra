@@ -26,6 +26,8 @@ export const users = pgTable("users", {
   injury_history: jsonb("injury_history"),
   dietary_prefs: text("dietary_prefs"),
   food_allergies: text("food_allergies").array(),
+  other_health_notes: text("other_health_notes"),
+  other_injury_notes: text("other_injury_notes"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

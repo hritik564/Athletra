@@ -59,6 +59,11 @@ export interface UserProfile {
   cricketRole: CricketRole;
   bowlingArm: LeadHand;
   bowlingStyle: 'pace' | 'spin' | '';
+  spinType: string;
+
+  // Free-text health notes
+  otherHealthNotes: string;
+  otherInjuryNotes: string;
 }
 
 export const defaultProfile: UserProfile = {
@@ -102,6 +107,9 @@ export const defaultProfile: UserProfile = {
   cricketRole: '',
   bowlingArm: 'right',
   bowlingStyle: '',
+  spinType: '',
+  otherHealthNotes: '',
+  otherInjuryNotes: '',
 };
 
 interface UserContextValue {

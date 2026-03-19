@@ -1,801 +1,971 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, Pressable, TextInput, Animated, Dimensions, Platform,
-  Switch, ScrollView, ActivityIndicator,
+  View, Text, StyleSheet, Pressable, TextInput, Animated,
+  Dimensions, Platform, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@/contexts/UserContext';
 import { useColors } from '@/contexts/ThemeContext';
 import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 4;
+const PERSIST_KEY = 'onboarding_progress';
 
-const GOALS = [
-  { key: 'lose_weight', label: 'Cut & Lean', icon: 'flame' as const, desc: 'Shed fat, reveal muscle' },
-  { key: 'build_muscle', label: 'Build Power', icon: 'barbell' as const, desc: 'Gain size and strength' },
-  { key: 'stay_fit', label: 'Peak Form', icon: 'heart' as const, desc: 'Maintain elite conditioning' },
-  { key: 'gain_energy', label: 'Unlock Energy', icon: 'flash' as const, desc: 'Boost daily performance' },
+// ─── Sport Definitions ────────────────────────────────────────────────────────
+
+const SPORTS_PRIMARY = [
+  {
+    key: 'cricket', label: 'Cricket', icon: 'baseball' as const,
+    colors: ['#1B5E20', '#2E7D32'] as [string, string],
+    tagline: 'Batting, bowling & field analysis',
+    emoji: '🏏',
+  },
+  {
+    key: 'badminton', label: 'Badminton', icon: 'tennisball' as const,
+    colors: ['#F57F17', '#E65100'] as [string, string],
+    tagline: 'Smash technique & footwork coaching',
+    emoji: '🏸',
+  },
+  {
+    key: 'skating', label: 'Skating', icon: 'navigate' as const,
+    colors: ['#0D47A1', '#1565C0'] as [string, string],
+    tagline: 'Edge control & jump power analysis',
+    emoji: '⛸️',
+  },
+  {
+    key: 'yoga', label: 'Yoga', icon: 'body' as const,
+    colors: ['#6A1B9A', '#7B1FA2'] as [string, string],
+    tagline: 'Pose alignment & flow tracking',
+    emoji: '🧘',
+  },
 ];
 
-const HEALTH_CONDITIONS = [
-  { key: 'diabetes', label: 'Diabetes', icon: 'water' as const },
-  { key: 'hypertension', label: 'Hypertension', icon: 'pulse' as const },
-  { key: 'high_cholesterol', label: 'High Cholesterol', icon: 'analytics' as const },
-  { key: 'food_allergies', label: 'Food Allergies', icon: 'alert-circle' as const },
-];
-
-const FITNESS_LEVELS = [
-  { key: 'beginner', label: 'Foundation', desc: 'Building base fitness from the ground up' },
-  { key: 'intermediate', label: 'Competitor', desc: 'Consistent training, ready to push harder' },
-  { key: 'advanced', label: 'Elite', desc: 'High-intensity training, chasing new limits' },
-];
-
-const ENVIRONMENTS = [
-  { key: 'gym', label: 'Gym', icon: 'barbell' as const },
-  { key: 'home', label: 'Home', icon: 'home' as const },
-  { key: 'outdoors', label: 'Outdoors', icon: 'leaf' as const },
-  { key: 'mixed', label: 'Mixed', icon: 'shuffle' as const },
-];
-
-const DIETARY_PREFS = [
-  { key: 'none', label: 'No Restrictions' },
-  { key: 'vegetarian', label: 'Vegetarian' },
-  { key: 'vegan', label: 'Vegan' },
-  { key: 'keto', label: 'Keto' },
-  { key: 'paleo', label: 'Paleo' },
-  { key: 'gluten_free', label: 'Gluten Free' },
-];
-
-const SPORTS = [
+const SPORTS_MORE = [
   { key: 'football', label: 'Football', icon: 'football' as const },
   { key: 'basketball', label: 'Basketball', icon: 'basketball' as const },
-  { key: 'cricket', label: 'Cricket', icon: 'baseball' as const },
-  { key: 'tennis', label: 'Tennis', icon: 'tennisball' as const },
-  { key: 'badminton', label: 'Badminton', icon: 'tennisball-outline' as const },
-  { key: 'running', label: 'Running', icon: 'walk' as const },
+  { key: 'tennis', label: 'Tennis', icon: 'tennisball-outline' as const },
   { key: 'swimming', label: 'Swimming', icon: 'water' as const },
-  { key: 'cycling', label: 'Cycling', icon: 'bicycle' as const },
-  { key: 'mma', label: 'MMA / Boxing', icon: 'hand-left' as const },
-  { key: 'weightlifting', label: 'Weightlifting', icon: 'barbell' as const },
+  { key: 'running', label: 'Running', icon: 'walk' as const },
   { key: 'other', label: 'Other', icon: 'ellipsis-horizontal' as const },
 ];
 
-const ATHLETE_LEVELS = [
-  { key: 'recreational', label: 'Recreational', desc: 'Training for fun and fitness' },
-  { key: 'amateur', label: 'Amateur / Club', desc: 'Competing at local level' },
-  { key: 'semi_pro', label: 'Semi-Pro', desc: 'Serious competition, structured training' },
-  { key: 'professional', label: 'Professional', desc: 'Full-time dedication to the sport' },
+const PLAY_LEVELS = [
+  { key: 'beginner', label: 'Beginner', sub: 'Learning the fundamentals', badge: '🌱' },
+  { key: 'intermediate', label: 'Club Player', sub: 'Competing at amateur level', badge: '⚡' },
+  { key: 'advanced', label: 'Semi-Pro', sub: 'Structured competitive play', badge: '🏆' },
+  { key: 'pro', label: 'Professional', sub: 'Elite performance & coaching', badge: '🥇' },
 ];
 
-const SPORT_INSIGHTS: Record<string, string> = {
-  football: "We'll build explosive sprints, agility drills, and match-day endurance into your plan.",
-  basketball: "Focus on vertical power, court speed, and sustained energy through all four quarters.",
-  cricket: "We'll target rotational power, fast-twitch reflexes, and stamina for long sessions.",
-  tennis: "Your plan will emphasize lateral quickness, shoulder stability, and rally endurance.",
-  badminton: "We'll sharpen your reaction time, footwork speed, and overhead power.",
-  running: "We'll structure periodized runs, pace work, and recovery cycles for your distance.",
-  swimming: "Focus on stroke efficiency, core stability, and aerobic capacity in and out of the pool.",
-  cycling: "We'll build sustained power output, cadence control, and hill-climbing strength.",
-  mma: "Your program will balance striking power, grappling endurance, and fight conditioning.",
-  weightlifting: "We'll program progressive overload, accessory work, and peaking cycles for max lifts.",
-};
+const PRIMARY_GOALS = [
+  { key: 'technique', label: 'Technique', icon: 'analytics' as const, desc: 'Perfect form and mechanics' },
+  { key: 'power', label: 'Power', icon: 'flash' as const, desc: 'Maximize speed and strength' },
+  { key: 'weight_loss', label: 'Weight Loss', icon: 'flame' as const, desc: 'Lean out while staying athletic' },
+];
 
-const GOAL_INSIGHTS: Record<string, string> = {
-  lose_weight: "Your plan will combine strategic calorie deficit with muscle-preserving training.",
-  build_muscle: "We'll prioritize progressive overload and optimize your protein timing.",
-  stay_fit: "A balanced mix of strength, cardio, and mobility to keep you performing at your best.",
-  gain_energy: "We'll focus on sustainable habits, sleep optimization, and energizing nutrition.",
-};
+// ─── Pro-Mode Cricket Init ────────────────────────────────────────────────────
 
-function calculateCalories(weight: number, height: number, age: number, activityLevel: string, goal: string): number {
-  const bmr = 10 * weight + 6.25 * height - 5 * age + 5;
-  const multipliers: Record<string, number> = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9 };
-  const tdee = bmr * (multipliers[activityLevel] || 1.55);
-  if (goal === 'lose_weight') return Math.round(tdee - 500);
-  if (goal === 'build_muscle') return Math.round(tdee + 300);
-  return Math.round(tdee);
+function calcBatSize(heightCm: number): number {
+  if (heightCm < 137) return 1;
+  if (heightCm < 149) return 2;
+  if (heightCm < 155) return 3;
+  if (heightCm < 163) return 4;
+  if (heightCm < 170) return 5;
+  return 6;
 }
 
-function AIInsight({ text, Colors }: { text: string; Colors: any }) {
-  const pulseAnim = useRef(new Animated.Value(0.6)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 0.6, duration: 1200, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-
-  return (
-    <View style={{
-      width: '100%', flexDirection: 'row', alignItems: 'flex-start', gap: 10,
-      marginTop: 16, padding: 14, backgroundColor: Colors.primary + '12',
-      borderRadius: 14, borderLeftWidth: 3, borderLeftColor: Colors.primary,
-    }}>
-      <Animated.View style={{ opacity: pulseAnim }}>
-        <Ionicons name="sparkles" size={16} color={Colors.primary} />
-      </Animated.View>
-      <Text style={{
-        flex: 1, fontSize: 13, fontFamily: 'Outfit_500Medium',
-        color: Colors.textSecondary, lineHeight: 19,
-      }}>{text}</Text>
-    </View>
-  );
+function buildSportData(sport: string, heightCm: number): Record<string, any> {
+  if (sport === 'cricket') {
+    return {
+      cricket: {
+        bat_size: { value: calcBatSize(heightCm), confidence: 0.7, source: 'height_calc' },
+        bat_weight: { value: 1200, confidence: 0.6, source: 'default' },
+        batting_guard: { value: 'middle', confidence: 0.6, source: 'default' },
+      },
+    };
+  }
+  return { [sport]: {} };
 }
 
-function BlueprintScreen({ Colors, onComplete }: { Colors: any; onComplete: () => void }) {
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const fadeTexts = useRef([
-    new Animated.Value(0),
-    new Animated.Value(0),
-    new Animated.Value(0),
-    new Animated.Value(0),
-  ]).current;
+// ─── Unit Helpers ─────────────────────────────────────────────────────────────
 
-  const steps = [
-    'Analyzing your profile...',
-    'Mapping training zones...',
-    'Calibrating nutrition targets...',
-    'Finalizing your blueprint...',
-  ];
+function cmToFtIn(cm: number): { ft: string; inch: string } {
+  const totalIn = cm / 2.54;
+  const ft = Math.floor(totalIn / 12);
+  const inch = Math.round(totalIn % 12);
+  return { ft: String(ft), inch: String(inch) };
+}
+
+function ftInToCm(ft: string, inch: string): number {
+  return Math.round((parseInt(ft || '0') * 12 + parseInt(inch || '0')) * 2.54);
+}
+
+function kgToLbs(kg: number): string {
+  return String(Math.round(kg * 2.20462));
+}
+
+function lbsToKg(lbs: string): number {
+  return Math.round(parseFloat(lbs || '0') / 2.20462 * 10) / 10;
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function ProgressBar({ step, Colors }: { step: number; Colors: any }) {
+  const progress = step / TOTAL_STEPS;
+  const widthAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: 1, duration: 3500, useNativeDriver: false,
+    Animated.spring(widthAnim, {
+      toValue: progress,
+      tension: 60, friction: 10,
+      useNativeDriver: false,
     }).start();
+  }, [progress]);
 
-    const delays = [0, 800, 1600, 2400];
-    delays.forEach((delay, i) => {
-      setTimeout(() => {
-        Animated.timing(fadeTexts[i], { toValue: 1, duration: 400, useNativeDriver: true }).start();
-      }, delay);
-    });
-
-    setTimeout(() => {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onComplete();
-    }, 3800);
-  }, []);
-
-  const progressWidth = progressAnim.interpolate({
+  const barWidth = widthAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0%', '100%'],
   });
 
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 }}>
-      <LinearGradient colors={[Colors.primary, Colors.accent]} style={{
-        width: 90, height: 90, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 32,
+    <View style={{ paddingHorizontal: 24, paddingTop: 8 }}>
+      <View style={{
+        height: 4, backgroundColor: Colors.surfaceLight,
+        borderRadius: 2, overflow: 'hidden',
       }}>
-        <ActivityIndicator size="large" color="#fff" />
-      </LinearGradient>
-
-      <Text style={{
-        fontSize: 24, fontFamily: 'Outfit_700Bold', color: Colors.text,
-        textAlign: 'center', marginBottom: 8,
-      }}>Building Your Performance Blueprint</Text>
-
-      <Text style={{
-        fontSize: 14, fontFamily: 'Outfit_400Regular', color: Colors.textSecondary,
-        textAlign: 'center', marginBottom: 32,
-      }}>Personalizing every detail for your goals</Text>
-
-      <View style={{ width: '100%', height: 6, backgroundColor: Colors.surfaceLight, borderRadius: 3, marginBottom: 28, overflow: 'hidden' }}>
         <Animated.View style={{
-          height: '100%', backgroundColor: Colors.primary, borderRadius: 3,
-          width: progressWidth,
+          height: '100%', width: barWidth,
+          backgroundColor: Colors.primary, borderRadius: 2,
         }} />
       </View>
-
-      <View style={{ width: '100%', gap: 12 }}>
-        {steps.map((stepText, i) => (
-          <Animated.View key={i} style={{
-            opacity: fadeTexts[i], flexDirection: 'row', alignItems: 'center', gap: 10,
-          }}>
-            <Ionicons name="checkmark-circle" size={18} color={Colors.primary} />
-            <Text style={{
-              fontSize: 14, fontFamily: 'Outfit_500Medium', color: Colors.textSecondary,
-            }}>{stepText}</Text>
-          </Animated.View>
-        ))}
-      </View>
+      <Text style={{
+        fontSize: 11, fontFamily: 'Outfit_500Medium',
+        color: Colors.textMuted, marginTop: 4, textAlign: 'right',
+      }}>
+        {step < TOTAL_STEPS ? `Step ${step + 1} of ${TOTAL_STEPS}` : 'Complete'}
+      </Text>
     </View>
   );
 }
+
+function UnitToggle({
+  value, onChange, Colors,
+}: { value: 'metric' | 'imperial'; onChange: (v: 'metric' | 'imperial') => void; Colors: any }) {
+  return (
+    <View style={{
+      flexDirection: 'row', backgroundColor: Colors.surfaceLight,
+      borderRadius: 20, padding: 3, alignSelf: 'center', marginBottom: 20,
+    }}>
+      {(['metric', 'imperial'] as const).map(u => (
+        <Pressable
+          key={u}
+          onPress={() => onChange(u)}
+          style={{
+            paddingHorizontal: 20, paddingVertical: 6, borderRadius: 16,
+            backgroundColor: value === u ? Colors.primary : 'transparent',
+          }}
+        >
+          <Text style={{
+            fontSize: 13, fontFamily: 'Outfit_600SemiBold',
+            color: value === u ? '#fff' : Colors.textSecondary,
+          }}>
+            {u === 'metric' ? 'Metric' : 'Imperial'}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+// ─── Profile Strength Component ──────────────────────────────────────────────
+
+function ProfileStrengthScreen({
+  Colors, styles, heightCm, weightKg, sport, leadHand, onLaunch,
+}: {
+  Colors: any; styles: any;
+  heightCm: number; weightKg: number;
+  sport: string; leadHand: 'left' | 'right';
+  onLaunch: () => void;
+}) {
+  const strengthAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(strengthAnim, { toValue: 0.75, duration: 1200, useNativeDriver: false }).start();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, []);
+
+  const barWidth = strengthAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+
+  const done = [
+    `Height & weight calibrated (${heightCm} cm, ${weightKg} kg)`,
+    `Primary sport: ${sport ? sport.charAt(0).toUpperCase() + sport.slice(1) : 'General'}`,
+    `${leadHand === 'left' ? 'Left' : 'Right'}-hand stance locked in`,
+  ];
+
+  return (
+    <ScrollView contentContainerStyle={[styles.stepContent, { paddingBottom: 40 }]} showsVerticalScrollIndicator={false}>
+      <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.stepIcon}>
+        <Ionicons name="shield-checkmark" size={32} color="#fff" />
+      </LinearGradient>
+      <Text style={styles.stepTitle}>Profile Strength</Text>
+      <Text style={styles.stepSub}>Your biomechanical baseline is ready</Text>
+
+      <View style={styles.strengthCard}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+          <Text style={styles.strengthLabel}>Calibration Score</Text>
+          <Text style={styles.strengthPercent}>75%</Text>
+        </View>
+        <View style={styles.strengthTrack}>
+          <Animated.View style={[styles.strengthFill, { width: barWidth }]} />
+        </View>
+        <Text style={styles.strengthNote}>Basic Calibration Active</Text>
+      </View>
+
+      <View style={styles.doneList}>
+        {done.map((item, i) => (
+          <View key={i} style={styles.doneItem}>
+            <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
+            <Text style={styles.doneText}>{item}</Text>
+          </View>
+        ))}
+        <View style={styles.doneItem}>
+          <Ionicons name="lock-closed" size={20} color={Colors.textMuted} />
+          <Text style={[styles.doneText, { color: Colors.textMuted }]}>Gear & equipment details (Pro)</Text>
+        </View>
+      </View>
+
+      <View style={styles.upgradeCard}>
+        <Ionicons name="sparkles" size={18} color={Colors.primary} />
+        <Text style={styles.upgradeText}>
+          To unlock 100% Biomechanical Accuracy, upgrade your gear details in Pro Settings.
+        </Text>
+      </View>
+
+      <Pressable onPress={onLaunch} style={styles.launchBtn}>
+        <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.launchBtnGradient}>
+          <Text style={styles.launchBtnText}>Launch Athletra</Text>
+          <Ionicons name="arrow-forward" size={20} color="#fff" />
+        </LinearGradient>
+      </Pressable>
+    </ScrollView>
+  );
+}
+
+// ─── Main Wizard ──────────────────────────────────────────────────────────────
 
 export default function OnboardingScreen() {
   const Colors = useColors();
   const styles = createStyles(Colors);
-  const { profile, updateProfile, isLoading } = useUser();
+  const { profile, updateProfile, updateSportData, addUnlockedSport, isLoading } = useUser();
   const insets = useSafeAreaInsets();
+  const translateX = useRef(new Animated.Value(0)).current;
   const [step, setStep] = useState(0);
-  const [showBlueprint, setShowBlueprint] = useState(false);
 
+  // Step 0 – Vitals
+  const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('metric');
   const [name, setName] = useState('');
   const [age, setAge] = useState('25');
-  const [weight, setWeight] = useState('70');
-  const [height, setHeight] = useState('170');
+  const [heightCm, setHeightCm] = useState('170');
+  const [heightFt, setHeightFt] = useState('5');
+  const [heightIn, setHeightIn] = useState('7');
+  const [weightKg, setWeightKg] = useState('70');
+  const [weightLbs, setWeightLbs] = useState('154');
 
-  const [goal, setGoal] = useState('stay_fit');
-  const [calorieTarget, setCalorieTarget] = useState('');
-
-  const [isAthlete, setIsAthlete] = useState(false);
+  // Step 1 – Sport
   const [sport, setSport] = useState('');
-  const [customSport, setCustomSport] = useState('');
-  const [athleteLevel, setAthleteLevel] = useState('recreational');
+  const [showMoreSports, setShowMoreSports] = useState(false);
 
-  const [healthConditions, setHealthConditions] = useState<string[]>([]);
-  const [healthDetails, setHealthDetails] = useState('');
-  const [allergies, setAllergies] = useState('');
+  // Step 2 – Stance
+  const [leadHand, setLeadHand] = useState<'left' | 'right'>('right');
 
-  const [fitnessLevel, setFitnessLevel] = useState('intermediate');
-  const [dailyPattern, setDailyPattern] = useState('');
-
-  const [workoutEnvironment, setWorkoutEnvironment] = useState('home');
-  const [dietaryPreference, setDietaryPreference] = useState('none');
-
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    if (!isLoading && profile.onboarded) {
-      router.replace('/(tabs)');
-    }
-  }, [isLoading, profile.onboarded]);
-
-  if (isLoading) return <View style={[styles.container, { backgroundColor: Colors.background }]} />;
-  if (profile.onboarded) return null;
-
-  const animateStep = (next: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
-      setStep(next);
-      Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
-    });
-  };
-
-  const toggleCondition = (key: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setHealthConditions(prev =>
-      prev.includes(key) ? prev.filter(c => c !== key) : [...prev, key]
-    );
-  };
-
-  const finalSport = sport === 'other' ? customSport : sport;
-
-  const handleComplete = async () => {
-    const computedCalories = calculateCalories(
-      parseFloat(weight) || 70,
-      parseFloat(height) || 170,
-      parseInt(age) || 25,
-      fitnessLevel === 'beginner' ? 'light' : fitnessLevel === 'advanced' ? 'active' : 'moderate',
-      goal,
-    );
-    const finalCalories = calorieTarget ? parseInt(calorieTarget) : computedCalories;
-
-    await updateProfile({
-      name: name || 'Friend',
-      age: parseInt(age) || 25,
-      weight: parseFloat(weight) || 70,
-      height: parseFloat(height) || 170,
-      goal: goal as any,
-      activityLevel: fitnessLevel === 'beginner' ? 'light' : fitnessLevel === 'advanced' ? 'active' : 'moderate' as any,
-      fitnessLevel: fitnessLevel as any,
-      calorieTarget: finalCalories,
-      isAthlete,
-      sport: isAthlete ? finalSport : '',
-      athleteLevel: isAthlete ? athleteLevel : '',
-      healthConditions,
-      healthDetails,
-      allergies,
-      dailyPattern,
-      workoutEnvironment: workoutEnvironment as any,
-      dietaryPreference: dietaryPreference as any,
-      onboarded: true,
-    });
-    router.replace('/(tabs)');
-  };
-
-  const startBlueprint = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setShowBlueprint(true);
-  };
+  // Step 3 – Experience & Goal
+  const [skillLevel, setSkillLevel] = useState('intermediate');
+  const [fitnessGoal, setFitnessGoal] = useState('technique');
 
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
   const webBottomInset = Platform.OS === 'web' ? 34 : 0;
 
-  if (showBlueprint) {
-    return (
-      <View style={[styles.container, { backgroundColor: Colors.background }]}>
-        <BlueprintScreen Colors={Colors} onComplete={handleComplete} />
+  // Redirect if already onboarded
+  useEffect(() => {
+    if (!isLoading && profile.onboarded) router.replace('/(tabs)');
+  }, [isLoading, profile.onboarded]);
+
+  // Restore progress
+  useEffect(() => {
+    AsyncStorage.getItem(PERSIST_KEY).then(raw => {
+      if (!raw) return;
+      try {
+        const saved = JSON.parse(raw);
+        if (saved.step) setStep(saved.step);
+        if (saved.name) setName(saved.name);
+        if (saved.age) setAge(saved.age);
+        if (saved.unitSystem) setUnitSystem(saved.unitSystem);
+        if (saved.heightCm) setHeightCm(saved.heightCm);
+        if (saved.heightFt) setHeightFt(saved.heightFt);
+        if (saved.heightIn) setHeightIn(saved.heightIn);
+        if (saved.weightKg) setWeightKg(saved.weightKg);
+        if (saved.weightLbs) setWeightLbs(saved.weightLbs);
+        if (saved.sport) setSport(saved.sport);
+        if (saved.leadHand) setLeadHand(saved.leadHand);
+        if (saved.skillLevel) setSkillLevel(saved.skillLevel);
+        if (saved.fitnessGoal) setFitnessGoal(saved.fitnessGoal);
+      } catch {}
+    });
+  }, []);
+
+  const persist = useCallback(async (nextStep: number) => {
+    await AsyncStorage.setItem(PERSIST_KEY, JSON.stringify({
+      step: nextStep, name, age, unitSystem,
+      heightCm, heightFt, heightIn, weightKg, weightLbs,
+      sport, leadHand, skillLevel, fitnessGoal,
+    }));
+  }, [name, age, unitSystem, heightCm, heightFt, heightIn, weightKg, weightLbs,
+    sport, leadHand, skillLevel, fitnessGoal]);
+
+  const goTo = useCallback((next: number, dir: 'forward' | 'back' = 'forward') => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    persist(next);
+    const OUT = dir === 'forward' ? -width : width;
+    Animated.timing(translateX, { toValue: OUT, duration: 240, useNativeDriver: true }).start(() => {
+      setStep(next);
+      translateX.setValue(-OUT);
+      Animated.spring(translateX, { toValue: 0, tension: 70, friction: 12, useNativeDriver: true }).start();
+    });
+  }, [persist, translateX]);
+
+  const toggleUnit = (u: 'metric' | 'imperial') => {
+    if (u === unitSystem) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (u === 'imperial') {
+      const { ft, inch } = cmToFtIn(parseFloat(heightCm) || 170);
+      setHeightFt(ft); setHeightIn(inch);
+      setWeightLbs(kgToLbs(parseFloat(weightKg) || 70));
+    } else {
+      setHeightCm(String(ftInToCm(heightFt, heightIn)));
+      setWeightKg(String(lbsToKg(weightLbs)));
+    }
+    setUnitSystem(u);
+  };
+
+  const getHeightCmValue = (): number =>
+    unitSystem === 'metric' ? parseFloat(heightCm) || 170 : ftInToCm(heightFt, heightIn);
+
+  const getWeightKgValue = (): number =>
+    unitSystem === 'metric' ? parseFloat(weightKg) || 70 : lbsToKg(weightLbs);
+
+  const handleComplete = async () => {
+    const hCm = getHeightCmValue();
+    const wKg = getWeightKgValue();
+    const sportData = buildSportData(sport, hCm);
+
+    await updateProfile({
+      name: name.trim() || 'Athlete',
+      age: parseInt(age) || 25,
+      weight: unitSystem === 'metric' ? parseFloat(weightKg) || 70 : parseFloat(weightLbs) || 154,
+      weightUnit: unitSystem === 'metric' ? 'kg' : 'lbs',
+      height: unitSystem === 'metric' ? parseFloat(heightCm) || 170 : parseInt(heightFt) || 5,
+      heightUnit: unitSystem === 'metric' ? 'cm' : 'ft',
+      heightCm: hCm,
+      weightKg: wKg,
+      primarySport: sport as any,
+      leadHand,
+      skillLevel: skillLevel as any,
+      fitnessGoal: fitnessGoal as any,
+      preferredUnitSystem: unitSystem,
+      sportSpecificData: sportData,
+      unlockedSports: sport ? [sport] : [],
+      isAthlete: !!sport,
+      sport,
+      goal: fitnessGoal === 'weight_loss' ? 'lose_weight' : 'stay_fit',
+      fitnessLevel: skillLevel === 'pro' ? 'advanced' : skillLevel as any,
+      onboarded: true,
+    });
+
+    await AsyncStorage.removeItem(PERSIST_KEY);
+    router.replace('/(tabs)');
+  };
+
+  if (isLoading) return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
+  if (profile.onboarded) return null;
+
+  // ── Step Renderers ────────────────────────────────────────────────────────
+
+  const renderVitals = () => (
+    <ScrollView
+      contentContainerStyle={styles.stepContent}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
+      <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.stepIcon}>
+        <Ionicons name="person" size={32} color="#fff" />
+      </LinearGradient>
+      <Text style={styles.stepTitle}>Your Athletic Profile</Text>
+      <Text style={styles.stepSub}>The foundation of your personalized program</Text>
+
+      <UnitToggle value={unitSystem} onChange={toggleUnit} Colors={Colors} />
+
+      <View style={styles.field}>
+        <Text style={styles.fieldLabel}>Full Name</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter your name"
+          placeholderTextColor={Colors.textMuted}
+          value={name}
+          onChangeText={setName}
+          autoCapitalize="words"
+          returnKeyType="next"
+        />
       </View>
-    );
-  }
 
-  const renderStep = () => {
-    switch (step) {
-      case 0:
-        return (
-          <View style={styles.stepContent}>
-            <View style={styles.iconContainer}>
-              <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={styles.iconBg}>
-                <Ionicons name="person" size={36} color="#fff" />
-              </LinearGradient>
-            </View>
-            <Text style={styles.stepTitle}>Your Athletic Profile</Text>
-            <Text style={styles.stepSubtitle}>The foundation of your personalized program</Text>
-            <View style={styles.fieldContainer}>
-              <Text style={styles.inputLabel}>Full Name</Text>
+      <View style={styles.field}>
+        <Text style={styles.fieldLabel}>Age</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="25"
+          placeholderTextColor={Colors.textMuted}
+          value={age}
+          onChangeText={setAge}
+          keyboardType="number-pad"
+        />
+      </View>
+
+      <View style={styles.rowFields}>
+        <View style={[styles.field, { flex: 1 }]}>
+          <Text style={styles.fieldLabel}>
+            Height {unitSystem === 'metric' ? '(cm)' : '(ft / in)'}
+          </Text>
+          {unitSystem === 'metric' ? (
+            <TextInput
+              style={styles.input}
+              placeholder="170"
+              placeholderTextColor={Colors.textMuted}
+              value={heightCm}
+              onChangeText={setHeightCm}
+              keyboardType="number-pad"
+            />
+          ) : (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
               <TextInput
-                style={styles.input}
-                placeholder="Enter your name"
+                style={[styles.input, { flex: 1 }]}
+                placeholder="5"
                 placeholderTextColor={Colors.textMuted}
-                value={name}
-                onChangeText={setName}
-                autoCapitalize="words"
-                autoFocus
+                value={heightFt}
+                onChangeText={setHeightFt}
+                keyboardType="number-pad"
               />
-            </View>
-            <View style={styles.inputRow}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Age</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="25"
-                  placeholderTextColor={Colors.textMuted}
-                  value={age}
-                  onChangeText={setAge}
-                  keyboardType="number-pad"
-                />
-              </View>
-            </View>
-            <View style={styles.inputRow}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Weight (kg)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="70"
-                  placeholderTextColor={Colors.textMuted}
-                  value={weight}
-                  onChangeText={setWeight}
-                  keyboardType="decimal-pad"
-                />
-              </View>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Height (cm)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="170"
-                  placeholderTextColor={Colors.textMuted}
-                  value={height}
-                  onChangeText={setHeight}
-                  keyboardType="number-pad"
-                />
-              </View>
-            </View>
-          </View>
-        );
-
-      case 1:
-        return (
-          <View style={styles.stepContent}>
-            <View style={styles.iconContainer}>
-              <LinearGradient colors={[Colors.primary, Colors.accent]} style={styles.iconBg}>
-                <Ionicons name="trophy" size={36} color="#fff" />
-              </LinearGradient>
-            </View>
-            <Text style={styles.stepTitle}>Define Your Edge</Text>
-            <Text style={styles.stepSubtitle}>What does peak performance look like for you?</Text>
-            <View style={styles.optionsGrid}>
-              {GOALS.map((g) => (
-                <Pressable
-                  key={g.key}
-                  style={[styles.optionCard, goal === g.key && styles.optionCardActive]}
-                  onPress={() => { setGoal(g.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-                >
-                  <Ionicons
-                    name={g.icon}
-                    size={26}
-                    color={goal === g.key ? Colors.primary : Colors.textSecondary}
-                  />
-                  <Text style={[styles.optionLabel, goal === g.key && styles.optionLabelActive]}>
-                    {g.label}
-                  </Text>
-                  <Text style={[styles.optionDesc, goal === g.key && { color: Colors.primary + 'CC' }]}>
-                    {g.desc}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            {GOAL_INSIGHTS[goal] && (
-              <AIInsight text={GOAL_INSIGHTS[goal]} Colors={Colors} />
-            )}
-            <View style={[styles.fieldContainer, { marginTop: 16 }]}>
-              <Text style={styles.inputLabel}>Daily Calorie Target (optional)</Text>
               <TextInput
-                style={styles.input}
-                placeholder="Auto-calculated if left blank"
+                style={[styles.input, { flex: 1 }]}
+                placeholder="7"
                 placeholderTextColor={Colors.textMuted}
-                value={calorieTarget}
-                onChangeText={setCalorieTarget}
+                value={heightIn}
+                onChangeText={setHeightIn}
                 keyboardType="number-pad"
               />
             </View>
-          </View>
-        );
-
-      case 2:
-        return (
-          <View style={styles.stepContent}>
-            <View style={styles.iconContainer}>
-              <LinearGradient colors={[Colors.accent, Colors.accentDark]} style={styles.iconBg}>
-                <Ionicons name="medal" size={36} color="#fff" />
-              </LinearGradient>
-            </View>
-            <Text style={styles.stepTitle}>Your Competitive Arena</Text>
-            <Text style={styles.stepSubtitle}>Sport-specific training unlocks faster results</Text>
-            <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>I compete in a sport</Text>
-              <Switch
-                value={isAthlete}
-                onValueChange={(v) => { setIsAthlete(v); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-                trackColor={{ false: Colors.surfaceLight, true: Colors.accent }}
-                thumbColor="#fff"
-              />
-            </View>
-            {isAthlete && (
-              <>
-                <Text style={[styles.sectionLabel, { marginTop: 16 }]}>Select Your Sport</Text>
-                <View style={styles.sportGrid}>
-                  {SPORTS.map((s) => (
-                    <Pressable
-                      key={s.key}
-                      style={[styles.sportCard, sport === s.key && styles.sportCardActive]}
-                      onPress={() => { setSport(s.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-                    >
-                      <Ionicons
-                        name={s.icon}
-                        size={22}
-                        color={sport === s.key ? Colors.accent : Colors.textMuted}
-                      />
-                      <Text style={[styles.sportLabel, sport === s.key && styles.sportLabelActive]}>
-                        {s.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-                {sport === 'other' && (
-                  <View style={[styles.fieldContainer, { marginTop: 12 }]}>
-                    <Text style={styles.inputLabel}>Your Sport</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="e.g. Rugby, Volleyball, Table Tennis"
-                      placeholderTextColor={Colors.textMuted}
-                      value={customSport}
-                      onChangeText={setCustomSport}
-                      autoFocus
-                    />
-                  </View>
-                )}
-                {sport && sport !== 'other' && SPORT_INSIGHTS[sport] && (
-                  <AIInsight text={SPORT_INSIGHTS[sport]} Colors={Colors} />
-                )}
-                <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Competition Level</Text>
-                {ATHLETE_LEVELS.map((l) => (
-                  <Pressable
-                    key={l.key}
-                    style={[styles.levelOption, athleteLevel === l.key && styles.levelOptionActive]}
-                    onPress={() => { setAthleteLevel(l.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.levelLabel, athleteLevel === l.key && styles.levelLabelActive]}>{l.label}</Text>
-                      <Text style={styles.levelDesc}>{l.desc}</Text>
-                    </View>
-                    {athleteLevel === l.key && <Ionicons name="checkmark-circle" size={22} color={Colors.accent} />}
-                  </Pressable>
-                ))}
-              </>
-            )}
-          </View>
-        );
-
-      case 3:
-        return (
-          <View style={styles.stepContent}>
-            <View style={styles.iconContainer}>
-              <LinearGradient colors={[Colors.error, '#C62828']} style={styles.iconBg}>
-                <Ionicons name="shield-checkmark" size={36} color="#fff" />
-              </LinearGradient>
-            </View>
-            <Text style={styles.stepTitle}>Safety First</Text>
-            <Text style={styles.stepSubtitle}>We adapt every plan around your health needs</Text>
-            <View style={styles.optionsGrid}>
-              {HEALTH_CONDITIONS.map((c) => (
-                <Pressable
-                  key={c.key}
-                  style={[styles.optionCard, healthConditions.includes(c.key) && styles.optionCardActiveAccent]}
-                  onPress={() => toggleCondition(c.key)}
-                >
-                  <Ionicons
-                    name={c.icon}
-                    size={24}
-                    color={healthConditions.includes(c.key) ? Colors.accent : Colors.textSecondary}
-                  />
-                  <Text style={[styles.optionLabel, healthConditions.includes(c.key) && styles.optionLabelActiveAccent]}>
-                    {c.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            {healthConditions.length > 0 && (
-              <>
-                <AIInsight
-                  text="Your coach will adjust intensity, exercises, and nutrition to work safely with your conditions."
-                  Colors={Colors}
-                />
-                <View style={[styles.fieldContainer, { marginTop: 12 }]}>
-                  <Text style={styles.inputLabel}>Details (medications, severity, etc.)</Text>
-                  <TextInput
-                    style={[styles.input, styles.textArea]}
-                    placeholder="e.g. Type 2 diabetes, on metformin"
-                    placeholderTextColor={Colors.textMuted}
-                    value={healthDetails}
-                    onChangeText={setHealthDetails}
-                    multiline
-                  />
-                </View>
-              </>
-            )}
-            <View style={[styles.fieldContainer, { marginTop: 12 }]}>
-              <Text style={styles.inputLabel}>Food Allergies</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. nuts, shellfish, lactose"
-                placeholderTextColor={Colors.textMuted}
-                value={allergies}
-                onChangeText={setAllergies}
-              />
-            </View>
-          </View>
-        );
-
-      case 4:
-        return (
-          <View style={styles.stepContent}>
-            <View style={styles.iconContainer}>
-              <LinearGradient colors={[Colors.accentLight, Colors.accent]} style={styles.iconBg}>
-                <Ionicons name="fitness" size={36} color="#fff" />
-              </LinearGradient>
-            </View>
-            <Text style={styles.stepTitle}>Your Training Level</Text>
-            <Text style={styles.stepSubtitle}>Honest input drives better results</Text>
-            {FITNESS_LEVELS.map((l) => (
-              <Pressable
-                key={l.key}
-                style={[styles.levelOption, fitnessLevel === l.key && styles.levelOptionActive]}
-                onPress={() => { setFitnessLevel(l.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.levelLabel, fitnessLevel === l.key && styles.levelLabelActive]}>
-                    {l.label}
-                  </Text>
-                  <Text style={styles.levelDesc}>{l.desc}</Text>
-                </View>
-                {fitnessLevel === l.key && (
-                  <Ionicons name="checkmark-circle" size={24} color={Colors.accent} />
-                )}
-              </Pressable>
-            ))}
-            <View style={[styles.fieldContainer, { marginTop: 16 }]}>
-              <Text style={styles.inputLabel}>Your daily rhythm</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="e.g. Desk job 9-5, gym at 6pm"
-                placeholderTextColor={Colors.textMuted}
-                value={dailyPattern}
-                onChangeText={setDailyPattern}
-                multiline
-              />
-            </View>
-          </View>
-        );
-
-      case 5:
-        return (
-          <View style={styles.stepContent}>
-            <View style={styles.iconContainer}>
-              <LinearGradient colors={[Colors.primaryLight, Colors.primary]} style={styles.iconBg}>
-                <Ionicons name="location" size={36} color="#fff" />
-              </LinearGradient>
-            </View>
-            <Text style={styles.stepTitle}>Training Ground</Text>
-            <Text style={styles.stepSubtitle}>We'll select equipment and exercises that fit your space</Text>
-            <View style={styles.optionsGrid}>
-              {ENVIRONMENTS.map((e) => (
-                <Pressable
-                  key={e.key}
-                  style={[styles.optionCard, workoutEnvironment === e.key && styles.optionCardActive]}
-                  onPress={() => { setWorkoutEnvironment(e.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-                >
-                  <Ionicons
-                    name={e.icon}
-                    size={26}
-                    color={workoutEnvironment === e.key ? Colors.primary : Colors.textSecondary}
-                  />
-                  <Text style={[styles.optionLabel, workoutEnvironment === e.key && styles.optionLabelActive]}>
-                    {e.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case 6:
-        return (
-          <View style={styles.stepContent}>
-            <View style={styles.iconContainer}>
-              <LinearGradient colors={['#66BB6A', '#43A047']} style={styles.iconBg}>
-                <Ionicons name="nutrition" size={36} color="#fff" />
-              </LinearGradient>
-            </View>
-            <Text style={styles.stepTitle}>Fuel Strategy</Text>
-            <Text style={styles.stepSubtitle}>Meal plans that match how you eat</Text>
-            {DIETARY_PREFS.map((d) => (
-              <Pressable
-                key={d.key}
-                style={[styles.listOption, dietaryPreference === d.key && styles.listOptionActive]}
-                onPress={() => { setDietaryPreference(d.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-              >
-                <Text style={[styles.listOptionLabel, dietaryPreference === d.key && styles.listOptionLabelActive]}>{d.label}</Text>
-                {dietaryPreference === d.key && <Ionicons name="checkmark-circle" size={22} color={Colors.accent} />}
-              </Pressable>
-            ))}
-          </View>
-        );
-
-      default:
-        return null;
-    }
-  };
-
-  const isLastStep = step === TOTAL_STEPS - 1;
-
-  return (
-    <View style={[styles.container, { backgroundColor: Colors.background }]}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{
-          paddingTop: (insets.top || webTopInset) + 20,
-          paddingBottom: (insets.bottom || webBottomInset) + 120,
-          paddingHorizontal: 24,
-        }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.progressContainer}>
-          {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
-            <View key={i} style={[styles.progressDot, i <= step && styles.progressDotActive]} />
-          ))}
+          )}
         </View>
 
-        <Text style={styles.stepCounter}>{step + 1} of {TOTAL_STEPS}</Text>
+        <View style={[styles.field, { flex: 1 }]}>
+          <Text style={styles.fieldLabel}>
+            Weight {unitSystem === 'metric' ? '(kg)' : '(lbs)'}
+          </Text>
+          <TextInput
+            style={styles.input}
+            placeholder={unitSystem === 'metric' ? '70' : '154'}
+            placeholderTextColor={Colors.textMuted}
+            value={unitSystem === 'metric' ? weightKg : weightLbs}
+            onChangeText={unitSystem === 'metric' ? setWeightKg : setWeightLbs}
+            keyboardType="decimal-pad"
+          />
+        </View>
+      </View>
+    </ScrollView>
+  );
 
-        <Animated.View style={{ opacity: fadeAnim }}>
-          {renderStep()}
-        </Animated.View>
-      </ScrollView>
+  const renderSportSelection = () => (
+    <ScrollView
+      contentContainerStyle={styles.stepContent}
+      showsVerticalScrollIndicator={false}
+    >
+      <LinearGradient colors={[Colors.accent, Colors.accentDark]} style={styles.stepIcon}>
+        <Ionicons name="trophy" size={32} color="#fff" />
+      </LinearGradient>
+      <Text style={styles.stepTitle}>Choose Your Sport</Text>
+      <Text style={styles.stepSub}>AI analysis is calibrated for each sport's biomechanics</Text>
 
-      <View style={[styles.buttonContainer, { paddingBottom: (insets.bottom || webBottomInset) + 16 }]}>
-        <View style={styles.buttonRow}>
-          {step > 0 && (
-            <Pressable style={styles.backButton} onPress={() => animateStep(step - 1)}>
-              <Ionicons name="chevron-back" size={24} color={Colors.textSecondary} />
+      <View style={styles.sportGrid}>
+        {SPORTS_PRIMARY.map(s => {
+          const active = sport === s.key;
+          return (
+            <Pressable
+              key={s.key}
+              onPress={() => { setSport(s.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+              style={[styles.sportCard, active && styles.sportCardActive]}
+            >
+              <LinearGradient
+                colors={active ? s.colors : [Colors.surface, Colors.surface]}
+                style={styles.sportCardGradient}
+              >
+                <Text style={styles.sportEmoji}>{s.emoji}</Text>
+                <Text style={[styles.sportName, active && { color: '#fff' }]}>{s.label}</Text>
+                <Text style={[styles.sportTagline, active && { color: 'rgba(255,255,255,0.75)' }]}>
+                  {s.tagline}
+                </Text>
+                {active && (
+                  <View style={styles.sportCheck}>
+                    <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                  </View>
+                )}
+              </LinearGradient>
             </Pressable>
-          )}
+          );
+        })}
+      </View>
+
+      <Pressable
+        onPress={() => setShowMoreSports(v => !v)}
+        style={styles.moreSportsToggle}
+      >
+        <Text style={styles.moreSportsText}>
+          {showMoreSports ? 'Show less' : 'More sports'}
+        </Text>
+        <Ionicons name={showMoreSports ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.primary} />
+      </Pressable>
+
+      {showMoreSports && (
+        <View style={styles.moreSportsGrid}>
+          {SPORTS_MORE.map(s => (
+            <Pressable
+              key={s.key}
+              onPress={() => { setSport(s.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              style={[styles.miniSportCard, sport === s.key && styles.miniSportCardActive]}
+            >
+              <Ionicons name={s.icon} size={20} color={sport === s.key ? Colors.primary : Colors.textMuted} />
+              <Text style={[styles.miniSportLabel, sport === s.key && { color: Colors.primary }]}>{s.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </ScrollView>
+  );
+
+  const renderStance = () => {
+    const isCricket = sport === 'cricket';
+    const leftLabel = isCricket ? 'Left-Handed\nBatsman' : 'Left\nDominant';
+    const rightLabel = isCricket ? 'Right-Handed\nBatsman' : 'Right\nDominant';
+
+    return (
+      <View style={styles.stepContent}>
+        <LinearGradient colors={['#1B7FE3', '#0D47A1']} style={styles.stepIcon}>
+          <Ionicons name="hand-left" size={32} color="#fff" />
+        </LinearGradient>
+        <Text style={styles.stepTitle}>Stance Calibration</Text>
+        <Text style={styles.stepSub}>
+          {isCricket
+            ? 'Your batting stance shapes every biomechanical model'
+            : 'Your dominant side calibrates pose detection'}
+        </Text>
+
+        <View style={styles.stanceContainer}>
           <Pressable
-            style={[styles.nextButton, step === 0 && { flex: 1 }]}
-            onPress={() => isLastStep ? startBlueprint() : animateStep(step + 1)}
+            onPress={() => { setLeadHand('left'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+            style={[styles.stanceCard, leadHand === 'left' && styles.stanceCardActive]}
           >
             <LinearGradient
-              colors={[Colors.primary, Colors.primaryDark]}
-              style={styles.nextButtonGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
+              colors={leadHand === 'left' ? [Colors.primary, Colors.primaryDark] : [Colors.surface, Colors.surface]}
+              style={styles.stanceGradient}
             >
-              <Text style={styles.nextButtonText}>
-                {isLastStep ? 'Build My Blueprint' : 'Continue'}
+              <Text style={styles.stanceEmoji}>🤚</Text>
+              <Text style={[styles.stanceLabel, leadHand === 'left' && { color: '#fff' }]}>
+                {leftLabel}
               </Text>
-              <Ionicons name={isLastStep ? "rocket" : "chevron-forward"} size={20} color="#fff" />
+              {leadHand === 'left' && (
+                <View style={styles.stanceCheckmark}>
+                  <Ionicons name="checkmark-circle" size={24} color="#fff" />
+                </View>
+              )}
+            </LinearGradient>
+          </Pressable>
+
+          <Pressable
+            onPress={() => { setLeadHand('right'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+            style={[styles.stanceCard, leadHand === 'right' && styles.stanceCardActive]}
+          >
+            <LinearGradient
+              colors={leadHand === 'right' ? [Colors.primary, Colors.primaryDark] : [Colors.surface, Colors.surface]}
+              style={styles.stanceGradient}
+            >
+              <Text style={styles.stanceEmoji}>✋</Text>
+              <Text style={[styles.stanceLabel, leadHand === 'right' && { color: '#fff' }]}>
+                {rightLabel}
+              </Text>
+              {leadHand === 'right' && (
+                <View style={styles.stanceCheckmark}>
+                  <Ionicons name="checkmark-circle" size={24} color="#fff" />
+                </View>
+              )}
             </LinearGradient>
           </Pressable>
         </View>
+
+        {sport === 'cricket' && (
+          <View style={styles.proNote}>
+            <Ionicons name="sparkles" size={14} color={Colors.primary} />
+            <Text style={styles.proNoteText}>
+              Pro Mode: Bat size auto-calculated from your height. Bat weight and guard initialized to tournament defaults.
+            </Text>
+          </View>
+        )}
       </View>
+    );
+  };
+
+  const renderExperience = () => (
+    <ScrollView
+      contentContainerStyle={styles.stepContent}
+      showsVerticalScrollIndicator={false}
+    >
+      <LinearGradient colors={[Colors.accent, Colors.accentDark]} style={styles.stepIcon}>
+        <Ionicons name="medal" size={32} color="#fff" />
+      </LinearGradient>
+      <Text style={styles.stepTitle}>Experience & Goal</Text>
+      <Text style={styles.stepSub}>We calibrate training intensity and feedback depth to your level</Text>
+
+      <Text style={styles.sectionLabel}>Play Level</Text>
+      {PLAY_LEVELS.map(l => (
+        <Pressable
+          key={l.key}
+          onPress={() => { setSkillLevel(l.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+          style={[styles.levelCard, skillLevel === l.key && styles.levelCardActive]}
+        >
+          <Text style={styles.levelBadge}>{l.badge}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.levelName, skillLevel === l.key && { color: Colors.primary }]}>{l.label}</Text>
+            <Text style={styles.levelSub}>{l.sub}</Text>
+          </View>
+          {skillLevel === l.key && <Ionicons name="checkmark-circle" size={22} color={Colors.primary} />}
+        </Pressable>
+      ))}
+
+      <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Primary Goal</Text>
+      <View style={styles.goalRow}>
+        {PRIMARY_GOALS.map(g => (
+          <Pressable
+            key={g.key}
+            onPress={() => { setFitnessGoal(g.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            style={[styles.goalCard, fitnessGoal === g.key && styles.goalCardActive]}
+          >
+            <Ionicons
+              name={g.icon}
+              size={24}
+              color={fitnessGoal === g.key ? Colors.primary : Colors.textMuted}
+            />
+            <Text style={[styles.goalLabel, fitnessGoal === g.key && { color: Colors.primary }]}>{g.label}</Text>
+            <Text style={styles.goalDesc}>{g.desc}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </ScrollView>
+  );
+
+  const renderProfileStrength = () => (
+    <ProfileStrengthScreen
+      Colors={Colors}
+      styles={styles}
+      heightCm={Math.round(getHeightCmValue())}
+      weightKg={Math.round(getWeightKgValue())}
+      sport={sport}
+      leadHand={leadHand}
+      onLaunch={handleComplete}
+    />
+  );
+
+  // ── Navigation ────────────────────────────────────────────────────────────
+
+  const canGoNext = (): boolean => {
+    switch (step) {
+      case 0: return name.trim().length > 0;
+      case 1: return true; // sport is optional
+      case 2: return true;
+      case 3: return true;
+      default: return false;
+    }
+  };
+
+  const handleNext = () => {
+    if (step < TOTAL_STEPS - 1) {
+      goTo(step + 1, 'forward');
+    } else {
+      goTo(TOTAL_STEPS, 'forward');
+    }
+  };
+
+  const renderCurrentStep = () => {
+    switch (step) {
+      case 0: return renderVitals();
+      case 1: return renderSportSelection();
+      case 2: return renderStance();
+      case 3: return renderExperience();
+      case 4: return renderProfileStrength();
+      default: return null;
+    }
+  };
+
+  const topPad = (insets.top || webTopInset) + 8;
+  const bottomPad = insets.bottom || webBottomInset;
+  const isLastDataStep = step === TOTAL_STEPS - 1;
+  const isCompleteStep = step === TOTAL_STEPS;
+
+  return (
+    <View style={[styles.container, { backgroundColor: Colors.background }]}>
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: topPad }]}>
+        {!isCompleteStep && (
+          <>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 4 }}>
+              {step > 0 ? (
+                <Pressable onPress={() => goTo(step - 1, 'back')} hitSlop={12}>
+                  <Ionicons name="chevron-back" size={24} color={Colors.text} />
+                </Pressable>
+              ) : <View style={{ width: 24 }} />}
+              <Text style={styles.headerBrand}>athletra</Text>
+              {step < TOTAL_STEPS - 1 ? (
+                <Pressable onPress={handleNext} hitSlop={12}>
+                  <Text style={styles.skipText}>Skip</Text>
+                </Pressable>
+              ) : <View style={{ width: 40 }} />}
+            </View>
+            <ProgressBar step={step} Colors={Colors} />
+          </>
+        )}
+      </View>
+
+      {/* Animated step content */}
+      <Animated.View style={{ flex: 1, transform: [{ translateX }] }}>
+        {renderCurrentStep()}
+      </Animated.View>
+
+      {/* Footer nav */}
+      {!isCompleteStep && (
+        <View style={[styles.footer, { paddingBottom: bottomPad + 16 }]}>
+          <Pressable
+            onPress={handleNext}
+            disabled={!canGoNext()}
+            style={[styles.nextBtn, !canGoNext() && { opacity: 0.5 }]}
+          >
+            <LinearGradient
+              colors={[Colors.primary, Colors.primaryDark]}
+              style={styles.nextBtnGradient}
+            >
+              <Text style={styles.nextBtnText}>
+                {isLastDataStep ? 'See Results' : 'Continue'}
+              </Text>
+              <Ionicons name="arrow-forward" size={20} color="#fff" />
+            </LinearGradient>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
 
-const createStyles = (C: any) => StyleSheet.create({
-  container: { flex: 1 },
-  progressContainer: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 8 },
-  progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.surfaceLight },
-  progressDotActive: { backgroundColor: C.primary, width: 20 },
-  stepCounter: { fontSize: 13, fontFamily: 'Outfit_500Medium', color: C.textMuted, textAlign: 'center', marginBottom: 24 },
-  stepContent: { alignItems: 'center' },
-  iconContainer: { marginBottom: 20 },
-  iconBg: { width: 72, height: 72, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  stepTitle: { fontSize: 24, fontFamily: 'Outfit_700Bold', color: C.text, textAlign: 'center', marginBottom: 6 },
-  stepSubtitle: { fontSize: 14, fontFamily: 'Outfit_400Regular', color: C.textSecondary, textAlign: 'center', marginBottom: 24 },
-  fieldContainer: { width: '100%' },
-  input: {
-    width: '100%', height: 50, backgroundColor: C.surface, borderRadius: 14,
-    paddingHorizontal: 16, color: C.text, fontSize: 15, fontFamily: 'Outfit_500Medium',
-    borderWidth: 1, borderColor: C.border,
-  },
-  textArea: { height: 76, textAlignVertical: 'top', paddingTop: 14 },
-  inputRow: { flexDirection: 'row', gap: 12, width: '100%', marginBottom: 10 },
-  inputGroup: { flex: 1 },
-  inputLabel: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: C.textSecondary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
-  sectionLabel: { fontSize: 12, fontFamily: 'Outfit_600SemiBold', color: C.textSecondary, alignSelf: 'flex-start', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
-  optionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, width: '100%' },
-  optionCard: {
-    width: (width - 58) / 2, paddingVertical: 16, paddingHorizontal: 14,
-    backgroundColor: C.surface, borderRadius: 14, alignItems: 'center', gap: 6,
-    borderWidth: 1.5, borderColor: C.border,
-  },
-  optionCardActive: { borderColor: C.primary, backgroundColor: C.primary + '14' },
-  optionCardActiveAccent: { borderColor: C.accent, backgroundColor: C.accent + '14' },
-  optionLabel: { fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: C.textSecondary },
-  optionLabelActive: { color: C.primary },
-  optionLabelActiveAccent: { color: C.accent },
-  optionDesc: { fontSize: 11, fontFamily: 'Outfit_400Regular', color: C.textMuted, textAlign: 'center' },
-  switchRow: {
-    width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 14, paddingHorizontal: 16, backgroundColor: C.surface,
-    borderRadius: 14, borderWidth: 1, borderColor: C.border,
-  },
-  switchLabel: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: C.text },
-  sportGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, width: '100%' },
-  sportCard: {
-    width: (width - 72) / 3, paddingVertical: 12, paddingHorizontal: 8,
-    backgroundColor: C.surface, borderRadius: 12, alignItems: 'center', gap: 4,
-    borderWidth: 1.5, borderColor: C.border,
-  },
-  sportCardActive: { borderColor: C.accent, backgroundColor: C.accent + '14' },
-  sportLabel: { fontSize: 11, fontFamily: 'Outfit_500Medium', color: C.textMuted, textAlign: 'center' },
-  sportLabelActive: { color: C.accent },
-  levelOption: {
-    width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 14, paddingHorizontal: 16, backgroundColor: C.surface,
-    borderRadius: 14, marginBottom: 8, borderWidth: 1.5, borderColor: C.border,
-  },
-  levelOptionActive: { borderColor: C.accent, backgroundColor: C.accent + '14' },
-  levelLabel: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: C.text },
-  levelLabelActive: { color: C.accent },
-  levelDesc: { fontSize: 12, fontFamily: 'Outfit_400Regular', color: C.textMuted, marginTop: 2 },
-  listOption: {
-    width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 14, paddingHorizontal: 16, backgroundColor: C.surface,
-    borderRadius: 14, marginBottom: 8, borderWidth: 1.5, borderColor: C.border,
-  },
-  listOptionActive: { borderColor: C.accent, backgroundColor: C.accent + '14' },
-  listOptionLabel: { fontSize: 15, fontFamily: 'Outfit_600SemiBold', color: C.text },
-  listOptionLabelActive: { color: C.accent },
-  buttonContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, backgroundColor: C.background },
-  buttonRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
-  backButton: {
-    width: 48, height: 48, borderRadius: 14, backgroundColor: C.surface,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  nextButton: { flex: 1 },
-  nextButtonGradient: {
-    height: 52, borderRadius: 14, flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'center', gap: 6,
-  },
-  nextButtonText: { fontSize: 16, fontFamily: 'Outfit_700Bold', color: '#fff' },
-});
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+function createStyles(C: any) {
+  return StyleSheet.create({
+    container: { flex: 1 },
+    header: { zIndex: 10 },
+    headerBrand: {
+      fontSize: 18, fontFamily: 'Outfit_700Bold',
+      color: C.primary, letterSpacing: 1,
+    },
+    skipText: {
+      fontSize: 14, fontFamily: 'Outfit_500Medium', color: C.textMuted,
+    },
+    stepContent: {
+      padding: 24, paddingTop: 16,
+    },
+    stepIcon: {
+      width: 68, height: 68, borderRadius: 22,
+      alignItems: 'center', justifyContent: 'center',
+      alignSelf: 'center', marginBottom: 20,
+    },
+    stepTitle: {
+      fontSize: 26, fontFamily: 'Outfit_700Bold',
+      color: C.text, textAlign: 'center', marginBottom: 6,
+    },
+    stepSub: {
+      fontSize: 14, fontFamily: 'Outfit_400Regular',
+      color: C.textSecondary, textAlign: 'center', marginBottom: 24, lineHeight: 20,
+    },
+    field: { marginBottom: 14 },
+    fieldLabel: {
+      fontSize: 13, fontFamily: 'Outfit_600SemiBold',
+      color: C.textSecondary, marginBottom: 6,
+    },
+    rowFields: { flexDirection: 'row', gap: 12 },
+    input: {
+      height: 50, borderRadius: 14, paddingHorizontal: 16,
+      backgroundColor: C.surface, color: C.text,
+      fontSize: 15, fontFamily: 'Outfit_500Medium',
+      borderWidth: 1, borderColor: C.border,
+    },
+    sportGrid: {
+      flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 8,
+    },
+    sportCard: {
+      width: (width - 60) / 2,
+      borderRadius: 18, overflow: 'hidden',
+      borderWidth: 2, borderColor: 'transparent',
+    },
+    sportCardActive: { borderColor: C.primary },
+    sportCardGradient: {
+      padding: 18, minHeight: 140,
+      alignItems: 'flex-start', justifyContent: 'flex-end',
+    },
+    sportEmoji: { fontSize: 36, marginBottom: 8 },
+    sportName: {
+      fontSize: 16, fontFamily: 'Outfit_700Bold', color: C.text,
+    },
+    sportTagline: {
+      fontSize: 11, fontFamily: 'Outfit_400Regular',
+      color: C.textMuted, marginTop: 3, lineHeight: 15,
+    },
+    sportCheck: { position: 'absolute', top: 10, right: 10 },
+    moreSportsToggle: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+      gap: 4, paddingVertical: 10,
+    },
+    moreSportsText: {
+      fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: C.primary,
+    },
+    moreSportsGrid: {
+      flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4,
+    },
+    miniSportCard: {
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+      paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20,
+      backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    },
+    miniSportCardActive: { borderColor: C.primary, backgroundColor: C.primary + '14' },
+    miniSportLabel: {
+      fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: C.textSecondary,
+    },
+    stanceContainer: { flexDirection: 'row', gap: 14, marginTop: 8 },
+    stanceCard: {
+      flex: 1, borderRadius: 20, overflow: 'hidden',
+      borderWidth: 2, borderColor: 'transparent',
+    },
+    stanceCardActive: { borderColor: C.primary },
+    stanceGradient: {
+      padding: 24, alignItems: 'center', minHeight: 170,
+      justifyContent: 'center',
+    },
+    stanceEmoji: { fontSize: 48, marginBottom: 14 },
+    stanceLabel: {
+      fontSize: 15, fontFamily: 'Outfit_700Bold',
+      color: C.text, textAlign: 'center', lineHeight: 22,
+    },
+    stanceCheckmark: { position: 'absolute', top: 12, right: 12 },
+    proNote: {
+      flexDirection: 'row', gap: 8, alignItems: 'flex-start',
+      marginTop: 20, padding: 14,
+      backgroundColor: C.primary + '12', borderRadius: 14,
+      borderLeftWidth: 3, borderLeftColor: C.primary,
+    },
+    proNoteText: {
+      flex: 1, fontSize: 13, fontFamily: 'Outfit_500Medium',
+      color: C.textSecondary, lineHeight: 19,
+    },
+    sectionLabel: {
+      fontSize: 15, fontFamily: 'Outfit_700Bold',
+      color: C.text, marginBottom: 12,
+    },
+    levelCard: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      padding: 14, borderRadius: 14, marginBottom: 8,
+      backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    },
+    levelCardActive: { borderColor: C.primary, backgroundColor: C.primary + '0A' },
+    levelBadge: { fontSize: 24 },
+    levelName: {
+      fontSize: 15, fontFamily: 'Outfit_700Bold', color: C.text,
+    },
+    levelSub: {
+      fontSize: 12, fontFamily: 'Outfit_400Regular', color: C.textMuted, marginTop: 2,
+    },
+    goalRow: { flexDirection: 'row', gap: 10 },
+    goalCard: {
+      flex: 1, padding: 14, borderRadius: 14, alignItems: 'center',
+      backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, gap: 6,
+    },
+    goalCardActive: { borderColor: C.primary, backgroundColor: C.primary + '0A' },
+    goalLabel: {
+      fontSize: 13, fontFamily: 'Outfit_700Bold', color: C.text, textAlign: 'center',
+    },
+    goalDesc: {
+      fontSize: 11, fontFamily: 'Outfit_400Regular',
+      color: C.textMuted, textAlign: 'center', lineHeight: 15,
+    },
+    strengthCard: {
+      padding: 20, borderRadius: 18, backgroundColor: C.surface,
+      borderWidth: 1, borderColor: C.border, marginBottom: 20,
+    },
+    strengthLabel: {
+      fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: C.textSecondary,
+    },
+    strengthPercent: {
+      fontSize: 22, fontFamily: 'Outfit_700Bold', color: C.primary,
+    },
+    strengthTrack: {
+      height: 10, backgroundColor: C.surfaceLight, borderRadius: 5,
+      overflow: 'hidden', marginBottom: 10,
+    },
+    strengthFill: {
+      height: '100%', backgroundColor: C.primary, borderRadius: 5,
+    },
+    strengthNote: {
+      fontSize: 13, fontFamily: 'Outfit_600SemiBold', color: C.success,
+    },
+    doneList: { gap: 10, marginBottom: 20 },
+    doneItem: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    doneText: {
+      fontSize: 14, fontFamily: 'Outfit_500Medium', color: C.text, flex: 1,
+    },
+    upgradeCard: {
+      flexDirection: 'row', gap: 10, alignItems: 'flex-start',
+      padding: 16, borderRadius: 16,
+      backgroundColor: C.primary + '10', borderWidth: 1, borderColor: C.primary + '30',
+      marginBottom: 24,
+    },
+    upgradeText: {
+      flex: 1, fontSize: 13, fontFamily: 'Outfit_500Medium',
+      color: C.textSecondary, lineHeight: 19,
+    },
+    launchBtn: { borderRadius: 16, overflow: 'hidden' },
+    launchBtnGradient: {
+      height: 56, flexDirection: 'row', alignItems: 'center',
+      justifyContent: 'center', gap: 10,
+    },
+    launchBtnText: {
+      fontSize: 17, fontFamily: 'Outfit_700Bold', color: '#fff',
+    },
+    footer: {
+      paddingHorizontal: 24, paddingTop: 12,
+      backgroundColor: C.background,
+      borderTopWidth: 1, borderTopColor: C.border,
+    },
+    nextBtn: { borderRadius: 16, overflow: 'hidden' },
+    nextBtnGradient: {
+      height: 54, flexDirection: 'row', alignItems: 'center',
+      justifyContent: 'center', gap: 10,
+    },
+    nextBtnText: {
+      fontSize: 16, fontFamily: 'Outfit_700Bold', color: '#fff',
+    },
+  });
+}

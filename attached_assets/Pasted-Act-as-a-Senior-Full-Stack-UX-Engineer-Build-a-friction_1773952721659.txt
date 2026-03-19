@@ -1,0 +1,41 @@
+Act as a Senior Full-Stack & UX Engineer. Build a frictionless, modular onboarding flow that supports a 'Pay-per-Sport' business model.
+
+1. Wizard Architecture (OnboardingWizard.tsx):
+
+Implement a State Machine pattern: One question per screen with 'Back', 'Next', and 'Skip' (where applicable).
+
+Persistence: Use AsyncStorage to save the current step so users can resume if the app closes.
+
+2. Core Multi-Step Flow:
+
+Step 1: Vitals. Name, Age, Height, Weight. Include a Metric/Imperial toggle with real-time conversion.
+
+Step 2: Sport Selection. High-quality cards for Cricket, Badminton, Skating, and Yoga.
+
+Step 3: Stance Calibration. Visual toggle (Left/Right). If Cricket is selected, label as 'Left-Handed Batsman' / 'Right-Handed Batsman'.
+
+Step 4: Experience & Goal. Select Play Level (Beginner to Pro) and Primary Goal (Technique, Power, or Weight Loss).
+
+3. Multi-Sport Database Logic (The 'Locker' System):
+
+Additive Storage: Update the users table's sport_specific_data JSONB to act as a Map (e.g., { "cricket": { ...data } }).
+
+Crucial: When saving data, use a deep merge or keyed update so that adding a new sport does NOT overwrite existing data for other sports.
+
+Status Tracking: Add an unlocked_sports string array to the User schema. Upon finishing onboarding, add the selected sport to this array.
+
+4. The 'Pro-Mode' Hook & Smart Defaults:
+
+If primary_sport === 'cricket', initialize the cricket key in the JSONB with: bat_size (auto-calculated by height), bat_weight: 1200, and batting_guard: 'middle'.
+
+Include metadata for these defaults: { value: 1200, confidence: 0.6, source: 'default' }.
+
+Final Screen: Show a 'Profile Strength' progress bar at 75%. Display: 'Basic Calibration Active. To unlock 100% Biomechanical Accuracy, upgrade your gear details in Pro Settings.'
+
+5. Navigation & Safety:
+
+Set onboarded = true only after final submission.
+
+Save the user's preferred_unit_system ('metric' or 'imperial') globally.
+
+Ensure smooth slide transitions and a progress indicator (dots or bar) at the top."

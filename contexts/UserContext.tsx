@@ -9,7 +9,10 @@ export type LeadHand = 'left' | 'right';
 
 export type FitnessGoal =
   | 'lose_weight' | 'build_muscle' | 'stay_fit'
-  | 'gain_energy' | 'pro_athlete' | 'recovery' | '';
+  | 'gain_energy' | 'pro_athlete' | 'recovery'
+  | 'technique' | 'power' | 'weight_loss' | '';
+
+export type UnitSystem = 'metric' | 'imperial';
 
 export interface UserProfile {
   name: string;
@@ -33,6 +36,7 @@ export interface UserProfile {
   dietaryPreference: 'none' | 'vegetarian' | 'vegan' | 'keto' | 'paleo' | 'gluten_free';
   onboarded: boolean;
 
+  // Biometric fields
   heightCm: number;
   weightKg: number;
   primarySport: PrimarySport;
@@ -40,6 +44,11 @@ export interface UserProfile {
   skillLevel: 'beginner' | 'intermediate' | 'advanced';
   healthFlags: string[];
   fitnessGoal: FitnessGoal;
+
+  // Locker system
+  preferredUnitSystem: UnitSystem;
+  unlockedSports: string[];
+  sportSpecificData: Record<string, any>;
 }
 
 export const defaultProfile: UserProfile = {
@@ -71,11 +80,17 @@ export const defaultProfile: UserProfile = {
   skillLevel: 'intermediate',
   healthFlags: [],
   fitnessGoal: '',
+
+  preferredUnitSystem: 'metric',
+  unlockedSports: [],
+  sportSpecificData: {},
 };
 
 interface UserContextValue {
   profile: UserProfile;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
+  updateSportData: (sport: string, data: Record<string, any>) => Promise<void>;
+  addUnlockedSport: (sport: string) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -115,7 +130,24 @@ export function UserProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem('user_profile', JSON.stringify(newProfile));
   };
 
-  const value = useMemo(() => ({ profile, updateProfile, isLoading }), [profile, isLoading]);
+  const updateSportData = async (sport: string, data: Record<string, any>) => {
+    const current = profile.sportSpecificData || {};
+    const updated = {
+      ...current,
+      [sport]: { ...(current[sport] || {}), ...data },
+    };
+    await updateProfile({ sportSpecificData: updated });
+  };
+
+  const addUnlockedSport = async (sport: string) => {
+    if (profile.unlockedSports.includes(sport)) return;
+    await updateProfile({ unlockedSports: [...profile.unlockedSports, sport] });
+  };
+
+  const value = useMemo(
+    () => ({ profile, updateProfile, updateSportData, addUnlockedSport, isLoading }),
+    [profile, isLoading],
+  );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
 }

@@ -2,17 +2,17 @@ import { createContext, useContext, useState, useEffect, useMemo, ReactNode } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type PrimarySport =
-  | 'cricket' | 'yoga' | 'skating' | 'badminton'
-  | 'tennis' | 'football' | 'basketball' | '';
+  | 'cricket' | 'yoga' | 'skating' | 'badminton' | '';
 
 export type LeadHand = 'left' | 'right';
 
 export type FitnessGoal =
   | 'lose_weight' | 'build_muscle' | 'stay_fit'
-  | 'gain_energy' | 'pro_athlete' | 'recovery'
-  | 'technique' | 'power' | 'weight_loss' | '';
+  | 'gain_energy' | 'technique' | 'power' | 'weight_loss' | '';
 
 export type UnitSystem = 'metric' | 'imperial';
+
+export type CricketRole = 'batter' | 'bowler' | 'all_rounder' | '';
 
 export interface UserProfile {
   name: string;
@@ -49,6 +49,16 @@ export interface UserProfile {
   preferredUnitSystem: UnitSystem;
   unlockedSports: string[];
   sportSpecificData: Record<string, any>;
+
+  // Medical & nutritional baseline
+  injuryHistory: Record<string, 'active' | 'past'>;
+  dietaryPrefs: string;
+  foodAllergies: string[];
+
+  // Cricket-specific
+  cricketRole: CricketRole;
+  bowlingArm: LeadHand;
+  bowlingStyle: 'pace' | 'spin' | '';
 }
 
 export const defaultProfile: UserProfile = {
@@ -84,6 +94,14 @@ export const defaultProfile: UserProfile = {
   preferredUnitSystem: 'metric',
   unlockedSports: [],
   sportSpecificData: {},
+
+  injuryHistory: {},
+  dietaryPrefs: '',
+  foodAllergies: [],
+
+  cricketRole: '',
+  bowlingArm: 'right',
+  bowlingStyle: '',
 };
 
 interface UserContextValue {

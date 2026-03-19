@@ -21,6 +21,11 @@ export const users = pgTable("users", {
   sport_specific_data: jsonb("sport_specific_data"),
   unlocked_sports: text("unlocked_sports").array(),
   preferred_unit_system: text("preferred_unit_system").default("metric"),
+
+  // Medical & nutritional baseline
+  injury_history: jsonb("injury_history"),
+  dietary_prefs: text("dietary_prefs"),
+  food_allergies: text("food_allergies").array(),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

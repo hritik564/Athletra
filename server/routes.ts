@@ -241,13 +241,23 @@ Your capabilities:
 - Suggest alternatives when users miss goals (missed a workout? Here's a 10-min option)
 - Track patterns and provide insights
 
+CRITICAL DIETARY AND HEALTH RULES — THESE ARE ABSOLUTE AND NON-NEGOTIABLE:
+1. If the user's dietary preference is listed in their profile, you MUST follow it 100% of the time in every meal suggestion, plan, or food mention. Never suggest foods that violate it.
+   - vegetarian → NEVER suggest chicken, beef, pork, lamb, fish, seafood, or any meat/flesh. Eggs and dairy ARE allowed.
+   - vegan → NEVER suggest any animal products: no meat, fish, eggs, dairy, honey, or gelatin.
+   - keto → Keep net carbs below 25g/day. NEVER suggest bread, rice, pasta, sugar, fruit juice, or starchy vegetables.
+   - paleo → NEVER suggest grains, legumes, dairy, refined sugar, or processed foods.
+   - gluten_free → NEVER suggest wheat, barley, rye, spelt, or anything containing gluten.
+2. If the user has listed food allergies, NEVER include those foods under any circumstance.
+3. If the user has active injuries, DO NOT prescribe exercises that stress those areas.
+4. Always tailor workout plans to the user's cricket role, yoga level, or sport-specific context if provided.
+
 When responding:
-- Always consider the user's profile data if provided (goals, stats, preferences)
+- Always consider the user's full profile data (goals, stats, sport, dietary restrictions, injuries)
 - Be specific with numbers (calories, sets, reps, timing)
 - End coaching responses with a motivating insight or micro-challenge
 - If the user seems discouraged, focus on what they DID accomplish
 - Use the user's name when provided
-- Consider health conditions, dietary preferences, and athlete status in all recommendations
 
 Format guidelines:
 - Use short paragraphs for readability
@@ -273,36 +283,101 @@ Always present the plan in a readable text format FIRST (with bullets, bold numb
 
 function buildProfileContext(userProfile: any): string {
   if (!userProfile) return '';
-  let ctx = `\n\nUser Profile:`;
+
+  let ctx = `\n\n===== ATHLETE PROFILE — READ BEFORE EVERY RESPONSE =====`;
+
+  // ── Vitals ──────────────────────────────────────────────────────────────────
   ctx += `\n- Name: ${userProfile.name || 'Friend'}`;
   ctx += `\n- Age: ${userProfile.age || 'Unknown'}`;
-  ctx += `\n- Weight: ${userProfile.weight || 'Unknown'} ${userProfile.weightUnit || 'kg'}`;
-  ctx += `\n- Height: ${userProfile.height || 'Unknown'} ${userProfile.heightUnit || 'cm'}`;
-  ctx += `\n- Goal: ${userProfile.goal || 'General fitness'}`;
-  ctx += `\n- Activity Level: ${userProfile.activityLevel || 'Moderate'}`;
-  ctx += `\n- Fitness Level: ${userProfile.fitnessLevel || 'intermediate'}`;
+
+  const weight = userProfile.weightKg || userProfile.weight;
+  const weightUnit = userProfile.weightUnit || 'kg';
+  const height = userProfile.heightCm || userProfile.height;
+  const heightUnit = userProfile.heightUnit || 'cm';
+  if (weight) ctx += `\n- Weight: ${weight} ${weightUnit}`;
+  if (height) ctx += `\n- Height: ${height} ${heightUnit}`;
+
+  // ── Sport & role ─────────────────────────────────────────────────────────────
+  const sport = userProfile.primarySport || userProfile.sport;
+  if (sport) ctx += `\n- Primary Sport: ${sport}`;
+
+  const skillLevel = userProfile.skillLevel || userProfile.fitnessLevel || userProfile.athleteLevel;
+  if (skillLevel) ctx += `\n- Skill Level: ${skillLevel}`;
+
+  if (sport === 'cricket') {
+    if (userProfile.cricketRole)  ctx += `\n- Cricket Role: ${userProfile.cricketRole.replace(/_/g, ' ')}`;
+    if (userProfile.bowlingArm)   ctx += `\n- Bowling Arm: ${userProfile.bowlingArm}`;
+    if (userProfile.bowlingStyle) ctx += `\n- Bowling Style: ${userProfile.bowlingStyle}`;
+    if (userProfile.spinType)     ctx += `\n- Spin Type: ${userProfile.spinType.replace(/_/g, ' ')}`;
+  }
+  if (userProfile.leadHand) ctx += `\n- Dominant Hand/Foot: ${userProfile.leadHand}`;
+
+  // ── Goal & calories ──────────────────────────────────────────────────────────
+  const goal = userProfile.fitnessGoal || userProfile.goal;
+  if (goal) ctx += `\n- Primary Goal: ${goal.replace(/_/g, ' ')}`;
   ctx += `\n- Daily Calorie Target: ${userProfile.calorieTarget || 2000} kcal`;
-  if (userProfile.isAthlete) {
-    ctx += `\n- Athlete: Yes, ${userProfile.sport || 'general'} (${userProfile.athleteLevel || 'amateur'})`;
-  }
-  if (userProfile.healthConditions && userProfile.healthConditions.length > 0) {
-    ctx += `\n- Health Conditions: ${userProfile.healthConditions.join(', ')}`;
-  }
-  if (userProfile.healthDetails) {
-    ctx += `\n- Health Details: ${userProfile.healthDetails}`;
-  }
-  if (userProfile.allergies) {
-    ctx += `\n- Allergies: ${userProfile.allergies}`;
+  if (userProfile.dailyPattern || userProfile.activityLevel) {
+    ctx += `\n- Activity Pattern: ${userProfile.dailyPattern || userProfile.activityLevel}`;
   }
   if (userProfile.workoutEnvironment) {
     ctx += `\n- Workout Environment: ${userProfile.workoutEnvironment}`;
   }
-  if (userProfile.dietaryPreference) {
-    ctx += `\n- Dietary Preference: ${userProfile.dietaryPreference}`;
+
+  // ── DIETARY — hard constraints the model must obey ───────────────────────────
+  const dietaryPref = userProfile.dietaryPrefs || userProfile.dietaryPreference;
+  if (dietaryPref && dietaryPref !== 'none') {
+    ctx += `\n\n⚠️  DIETARY RESTRICTION — ABSOLUTE RULE: ${dietaryPref.toUpperCase()}`;
+    if (dietaryPref === 'vegetarian') {
+      ctx += `\n   → User is VEGETARIAN. NEVER suggest chicken, beef, pork, lamb, mutton, fish, seafood, or any meat. Eggs and dairy ARE permitted.`;
+    } else if (dietaryPref === 'vegan') {
+      ctx += `\n   → User is VEGAN. NEVER suggest any animal product: no meat, fish, eggs, dairy, honey, gelatin, or whey.`;
+    } else if (dietaryPref === 'keto') {
+      ctx += `\n   → User is on KETO. Keep net carbs below 25 g/day. NEVER suggest bread, rice, pasta, sugar, fruit juice, or high-carb foods.`;
+    } else if (dietaryPref === 'paleo') {
+      ctx += `\n   → User follows PALEO. NEVER suggest grains, legumes, dairy, refined sugar, or processed foods.`;
+    } else if (dietaryPref === 'gluten_free') {
+      ctx += `\n   → User is GLUTEN-FREE. NEVER suggest wheat, barley, rye, spelt, or anything containing gluten.`;
+    }
   }
-  if (userProfile.dailyPattern) {
-    ctx += `\n- Daily Activity Pattern: ${userProfile.dailyPattern}`;
+
+  const foodAllergies: string[] = userProfile.foodAllergies
+    || (userProfile.allergies ? [userProfile.allergies] : []);
+  if (foodAllergies.length > 0) {
+    ctx += `\n⚠️  FOOD ALLERGIES — NEVER include: ${foodAllergies.join(', ')}`;
   }
+
+  // ── Health conditions ────────────────────────────────────────────────────────
+  const healthConditions: string[] = userProfile.healthFlags || userProfile.healthConditions || [];
+  if (healthConditions.length > 0) {
+    ctx += `\n- Medical Conditions: ${healthConditions.join(', ')}`;
+  }
+  const healthNotes = userProfile.otherHealthNotes || userProfile.healthDetails;
+  if (healthNotes) ctx += `\n- Additional Health Notes: ${healthNotes}`;
+
+  // ── Injury history ────────────────────────────────────────────────────────────
+  const injuryHistory: Record<string, string> = userProfile.injuryHistory || {};
+  const activeInjuries = Object.entries(injuryHistory).filter(([, v]) => v === 'active').map(([k]) => k);
+  const pastInjuries   = Object.entries(injuryHistory).filter(([, v]) => v === 'past').map(([k]) => k);
+  if (activeInjuries.length > 0) {
+    ctx += `\n⚠️  ACTIVE INJURIES (avoid loading these): ${activeInjuries.join(', ')}`;
+  }
+  if (pastInjuries.length > 0) {
+    ctx += `\n- Past Injuries (approach with caution): ${pastInjuries.join(', ')}`;
+  }
+  if (userProfile.otherInjuryNotes) {
+    ctx += `\n- Injury Notes: ${userProfile.otherInjuryNotes}`;
+  }
+
+  // ── Sport-specific pro-mode data ─────────────────────────────────────────────
+  const sd = userProfile.sportSpecificData;
+  if (sd && sport) {
+    const sportSD = sd[sport];
+    if (sportSD && Object.keys(sportSD).length > 0) {
+      ctx += `\n- Sport-Specific Data: ${JSON.stringify(sportSD)}`;
+    }
+  }
+
+  ctx += `\n===== END PROFILE =====`;
   return ctx;
 }
 

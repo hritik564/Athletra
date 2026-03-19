@@ -1,6 +1,16 @@
 import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+export type PrimarySport =
+  | 'cricket' | 'yoga' | 'skating' | 'badminton'
+  | 'tennis' | 'football' | 'basketball' | '';
+
+export type LeadHand = 'left' | 'right';
+
+export type FitnessGoal =
+  | 'lose_weight' | 'build_muscle' | 'stay_fit'
+  | 'gain_energy' | 'pro_athlete' | 'recovery' | '';
+
 export interface UserProfile {
   name: string;
   age: number;
@@ -22,6 +32,14 @@ export interface UserProfile {
   workoutEnvironment: 'gym' | 'home' | 'outdoors' | 'mixed';
   dietaryPreference: 'none' | 'vegetarian' | 'vegan' | 'keto' | 'paleo' | 'gluten_free';
   onboarded: boolean;
+
+  heightCm: number;
+  weightKg: number;
+  primarySport: PrimarySport;
+  leadHand: LeadHand;
+  skillLevel: 'beginner' | 'intermediate' | 'advanced';
+  healthFlags: string[];
+  fitnessGoal: FitnessGoal;
 }
 
 export const defaultProfile: UserProfile = {
@@ -45,6 +63,14 @@ export const defaultProfile: UserProfile = {
   workoutEnvironment: 'home',
   dietaryPreference: 'none',
   onboarded: false,
+
+  heightCm: 170,
+  weightKg: 70,
+  primarySport: '',
+  leadHand: 'right',
+  skillLevel: 'intermediate',
+  healthFlags: [],
+  fitnessGoal: '',
 };
 
 interface UserContextValue {
@@ -55,6 +81,18 @@ interface UserContextValue {
 
 const UserContext = createContext<UserContextValue | null>(null);
 
+function deriveMetricValues(profile: UserProfile): Partial<UserProfile> {
+  const heightCm =
+    profile.heightUnit === 'cm'
+      ? profile.height
+      : Math.round(profile.height * 30.48);
+  const weightKg =
+    profile.weightUnit === 'kg'
+      ? profile.weight
+      : Math.round(profile.weight * 0.453592 * 100) / 100;
+  return { heightCm, weightKg };
+}
+
 export function UserProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile>(defaultProfile);
   const [isLoading, setIsLoading] = useState(true);
@@ -62,14 +100,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     AsyncStorage.getItem('user_profile').then((data) => {
       if (data) {
-        setProfile({ ...defaultProfile, ...JSON.parse(data) });
+        const loaded: UserProfile = { ...defaultProfile, ...JSON.parse(data) };
+        setProfile({ ...loaded, ...deriveMetricValues(loaded) });
       }
       setIsLoading(false);
     });
   }, []);
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
-    const newProfile = { ...profile, ...updates };
+    const merged = { ...profile, ...updates };
+    const derived = deriveMetricValues(merged);
+    const newProfile = { ...merged, ...derived };
     setProfile(newProfile);
     await AsyncStorage.setItem('user_profile', JSON.stringify(newProfile));
   };

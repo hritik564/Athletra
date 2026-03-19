@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -9,6 +9,14 @@ export const users = pgTable("users", {
     .default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+
+  height_cm: doublePrecision("height_cm"),
+  weight_kg: doublePrecision("weight_kg"),
+  primary_sport: text("primary_sport"),
+  lead_hand: text("lead_hand").default("right"),
+  skill_level: text("skill_level"),
+  health_flags: text("health_flags").array(),
+  fitness_goal: text("fitness_goal"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

@@ -317,6 +317,22 @@ export default function OnboardingScreen() {
   }, [name, age, unitSystem, heightCm, heightFt, heightIn, weightKg, weightLbs,
     sport, leadHand, skillLevel, fitnessGoal]);
 
+  // ── Conditional routing ──────────────────────────────────────────────────
+  // Yoga skips the Stance screen entirely (step 2).
+  // Skating shows a Lead Foot variant of the Stance screen.
+  // Cricket / Badminton show the full Stance screen with sport-specific labels.
+  const shouldSkipStance = (s: string) => s === 'yoga';
+
+  const nextStep = (current: number, currentSport: string): number => {
+    if (current === 1 && shouldSkipStance(currentSport)) return 3;
+    return current < TOTAL_STEPS - 1 ? current + 1 : TOTAL_STEPS;
+  };
+
+  const prevStep = (current: number, currentSport: string): number => {
+    if (current === 3 && shouldSkipStance(currentSport)) return 1;
+    return current - 1;
+  };
+
   const goTo = useCallback((next: number, dir: 'forward' | 'back' = 'forward') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     persist(next);
@@ -604,7 +620,11 @@ export default function OnboardingScreen() {
           return (
             <Pressable
               key={s.key}
-              onPress={() => { setSport(s.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+              onPress={() => {
+                setSport(s.key);
+                if (shouldSkipStance(s.key)) setLeadHand('right');
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              }}
               style={[styles.sportCard, active && styles.sportCardActive]}
             >
               <LinearGradient
@@ -630,65 +650,63 @@ export default function OnboardingScreen() {
   );
 
   const renderStance = () => {
+    // Skating uses Lead Foot terminology (Goofy = right foot, Regular = left foot)
+    const isSkating = sport === 'skating';
     const isCricket = sport === 'cricket';
-    const leftLabel = isCricket ? 'Left-Handed\nBatsman' : 'Left\nDominant';
-    const rightLabel = isCricket ? 'Right-Handed\nBatsman' : 'Right\nDominant';
+
+    type StanceOption = { value: 'left' | 'right'; emoji: string; label: string };
+
+    const options: StanceOption[] = isSkating
+      ? [
+          { value: 'right', emoji: '🛼', label: 'Goofy\n(Right Foot Forward)' },
+          { value: 'left',  emoji: '🛼', label: 'Regular\n(Left Foot Forward)' },
+        ]
+      : [
+          { value: 'left',  emoji: '🤚', label: isCricket ? 'Left-Handed\nBatsman' : 'Left-Hand\nPlayer' },
+          { value: 'right', emoji: '✋', label: isCricket ? 'Right-Handed\nBatsman' : 'Right-Hand\nPlayer' },
+        ];
+
+    const title = isSkating ? 'Lead Foot' : 'Stance Calibration';
+    const subtitle = isSkating
+      ? 'Your lead foot determines how biomechanical models are mirrored'
+      : isCricket
+        ? 'Your batting stance shapes every biomechanical model'
+        : 'Your dominant hand calibrates swing and smash analysis';
 
     return (
       <View style={styles.stepContent}>
         <LinearGradient colors={['#1B7FE3', '#0D47A1']} style={styles.stepIcon}>
-          <Ionicons name="hand-left" size={32} color="#fff" />
+          <Ionicons name={isSkating ? 'footsteps' : 'hand-left'} size={32} color="#fff" />
         </LinearGradient>
-        <Text style={styles.stepTitle}>Stance Calibration</Text>
-        <Text style={styles.stepSub}>
-          {isCricket
-            ? 'Your batting stance shapes every biomechanical model'
-            : 'Your dominant side calibrates pose detection'}
-        </Text>
+        <Text style={styles.stepTitle}>{title}</Text>
+        <Text style={styles.stepSub}>{subtitle}</Text>
 
         <View style={styles.stanceContainer}>
-          <Pressable
-            onPress={() => { setLeadHand('left'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
-            style={[styles.stanceCard, leadHand === 'left' && styles.stanceCardActive]}
-          >
-            <LinearGradient
-              colors={leadHand === 'left' ? [Colors.primary, Colors.primaryDark] : [Colors.surface, Colors.surface]}
-              style={styles.stanceGradient}
+          {options.map(opt => (
+            <Pressable
+              key={opt.value}
+              onPress={() => { setLeadHand(opt.value); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
+              style={[styles.stanceCard, leadHand === opt.value && styles.stanceCardActive]}
             >
-              <Text style={styles.stanceEmoji}>🤚</Text>
-              <Text style={[styles.stanceLabel, leadHand === 'left' && { color: '#fff' }]}>
-                {leftLabel}
-              </Text>
-              {leadHand === 'left' && (
-                <View style={styles.stanceCheckmark}>
-                  <Ionicons name="checkmark-circle" size={24} color="#fff" />
-                </View>
-              )}
-            </LinearGradient>
-          </Pressable>
-
-          <Pressable
-            onPress={() => { setLeadHand('right'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}
-            style={[styles.stanceCard, leadHand === 'right' && styles.stanceCardActive]}
-          >
-            <LinearGradient
-              colors={leadHand === 'right' ? [Colors.primary, Colors.primaryDark] : [Colors.surface, Colors.surface]}
-              style={styles.stanceGradient}
-            >
-              <Text style={styles.stanceEmoji}>✋</Text>
-              <Text style={[styles.stanceLabel, leadHand === 'right' && { color: '#fff' }]}>
-                {rightLabel}
-              </Text>
-              {leadHand === 'right' && (
-                <View style={styles.stanceCheckmark}>
-                  <Ionicons name="checkmark-circle" size={24} color="#fff" />
-                </View>
-              )}
-            </LinearGradient>
-          </Pressable>
+              <LinearGradient
+                colors={leadHand === opt.value ? [Colors.primary, Colors.primaryDark] : [Colors.surface, Colors.surface]}
+                style={styles.stanceGradient}
+              >
+                <Text style={styles.stanceEmoji}>{opt.emoji}</Text>
+                <Text style={[styles.stanceLabel, leadHand === opt.value && { color: '#fff' }]}>
+                  {opt.label}
+                </Text>
+                {leadHand === opt.value && (
+                  <View style={styles.stanceCheckmark}>
+                    <Ionicons name="checkmark-circle" size={24} color="#fff" />
+                  </View>
+                )}
+              </LinearGradient>
+            </Pressable>
+          ))}
         </View>
 
-        {sport === 'cricket' && (
+        {isCricket && (
           <View style={styles.proNote}>
             <Ionicons name="sparkles" size={14} color={Colors.primary} />
             <Text style={styles.proNoteText}>
@@ -772,13 +790,8 @@ export default function OnboardingScreen() {
     }
   };
 
-  const handleNext = () => {
-    if (step < TOTAL_STEPS - 1) {
-      goTo(step + 1, 'forward');
-    } else {
-      goTo(TOTAL_STEPS, 'forward');
-    }
-  };
+  const handleNext = () => goTo(nextStep(step, sport), 'forward');
+  const handleBack = () => goTo(prevStep(step, sport), 'back');
 
   const renderCurrentStep = () => {
     switch (step) {
@@ -804,7 +817,7 @@ export default function OnboardingScreen() {
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 4 }}>
               {step > 0 ? (
-                <Pressable onPress={() => goTo(step - 1, 'back')} hitSlop={12}>
+                <Pressable onPress={handleBack} hitSlop={12}>
                   <Ionicons name="chevron-back" size={24} color={Colors.text} />
                 </Pressable>
               ) : <View style={{ width: 24 }} />}

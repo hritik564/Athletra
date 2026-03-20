@@ -1,122 +1,130 @@
 import { CoachingState, getHighestPriorityState } from './coachingScript';
+import { FilteredLandmark, FilteredLandmarkMap } from './coachingFilters';
 
-export interface Landmark {
-  x: number;
-  y: number;
-  z: number;
-  visibility: number;
+// ── Visibility thresholds ──────────────────────────────────────────────────────
+const BBOX_CONF_THRESHOLD = 0.50;  // below this → NOT_VISIBLE (low confidence)
+const VIS_USE_THRESHOLD   = 0.35;  // below this on a specific lm → skip check
+
+// ── Normalized thresholds (shoulder-width anchored where applicable) ───────────
+// Distance: based on body height fraction of frame (0 = top, 1 = bottom)
+const BODY_HEIGHT_MAX = 0.82;    // body > 82% of frame → TOO_CLOSE
+const BODY_HEIGHT_MIN = 0.38;    // body < 38% of frame → TOO_FAR
+
+// Sideways: shoulder x-separation (normalized to frame width)
+// Sideways person: < 0.10, Facing camera: > 0.20
+const SHOULDER_SEP_SIDEWAYS_MAX  = 0.12;  // above this → likely not sideways
+const HIP_SEP_SIDEWAYS_MAX       = 0.14;  // cross-check
+
+// Head alignment: |nose_x - ankle_mid_x| / body_height
+// Normalizing by body_height makes this scale-invariant
+const HEAD_ALIGN_THRESHOLD = 0.16;  // 16% of body height
+
+// Velocity — threshold for UNSTABLE state
+const UNSTABLE_VELOCITY_THRESHOLD = 0.008;  // EMA-smoothed velocity per axis per frame
+
+export interface CoachingOutput {
+  state:           CoachingState;
+  messageOverride?: string;  // shown instead of default script message
 }
 
-export type LandmarkMap = Record<string, Landmark>;
-
-const VIS_THRESHOLD = 0.45;
-
-function lm(landmarks: LandmarkMap, name: string): Landmark | null {
-  const l = landmarks[name];
-  if (!l || l.visibility < VIS_THRESHOLD) return null;
+function get(lms: FilteredLandmarkMap, name: string): FilteredLandmark | null {
+  const l = lms[name];
+  if (!l || l.visibility < VIS_USE_THRESHOLD) return null;
   return l;
 }
 
-function requireAll(landmarks: LandmarkMap, ...names: string[]): Landmark[] | null {
-  const out: Landmark[] = [];
-  for (const n of names) {
-    const l = lm(landmarks, n);
-    if (!l) return null;
-    out.push(l);
+// Compute average visibility of the core body landmarks → bbox_confidence
+function bboxConfidence(lms: FilteredLandmarkMap, raw: Record<string, { visibility: number }>): number {
+  const core = ['nose', 'left_shoulder', 'right_shoulder', 'left_hip', 'right_hip'];
+  let sum = 0; let count = 0;
+  for (const name of core) {
+    const v = raw[name]?.visibility ?? lms[name]?.visibility ?? 0;
+    sum += v; count++;
   }
-  return out;
+  return count > 0 ? sum / count : 0;
 }
 
-export function computeCoachingStates(
-  landmarks: LandmarkMap,
-  prevLandmarks: LandmarkMap | null,
-): CoachingState[] {
-  const issues: CoachingState[] = [];
+export function computeCoachingOutput(
+  filteredLandmarks: FilteredLandmarkMap,
+  rawLandmarks: Record<string, { x: number; y: number; z: number; visibility: number }>,
+  smoothed_velocity: number,
+  poseDetected: boolean,
+): CoachingOutput {
 
-  // ── NOT_VISIBLE ──────────────────────────────────────────────────────────────
-  const nose       = lm(landmarks, 'nose');
-  const lShoulder  = lm(landmarks, 'left_shoulder');
-  const rShoulder  = lm(landmarks, 'right_shoulder');
-  const lAnkle     = lm(landmarks, 'left_ankle');
-  const rAnkle     = lm(landmarks, 'right_ankle');
-  const lHip       = lm(landmarks, 'left_hip');
-  const rHip       = lm(landmarks, 'right_hip');
-
-  const coreVisible = nose && lShoulder && rShoulder && lHip && rHip;
-  if (!coreVisible) {
-    return ['NOT_VISIBLE'];
+  // ── NOT_VISIBLE (hard fail: no pose detected) ───────────────────────────────
+  if (!poseDetected) {
+    return { state: 'NOT_VISIBLE', messageOverride: 'Step into frame.' };
   }
 
+  // ── NOT_VISIBLE (soft fail: low confidence) ──────────────────────────────────
+  const conf = bboxConfidence(filteredLandmarks, rawLandmarks);
+  if (conf < BBOX_CONF_THRESHOLD) {
+    return { state: 'NOT_VISIBLE', messageOverride: "I can't see you clearly — step into view." };
+  }
+
+  // Core landmarks (may be interpolated, still usable)
+  const nose      = get(filteredLandmarks, 'nose');
+  const lShoulder = get(filteredLandmarks, 'left_shoulder');
+  const rShoulder = get(filteredLandmarks, 'right_shoulder');
+  const lHip      = get(filteredLandmarks, 'left_hip');
+  const rHip      = get(filteredLandmarks, 'right_hip');
+  const lAnkle    = get(filteredLandmarks, 'left_ankle');
+  const rAnkle    = get(filteredLandmarks, 'right_ankle');
+
+  if (!nose || !lShoulder || !rShoulder || !lHip || !rHip) {
+    return { state: 'NOT_VISIBLE', messageOverride: "Step into frame." };
+  }
+
+  const issues: CoachingState[] = [];
+
+  // ── Normalization anchor: shoulder width ──────────────────────────────────────
+  const shoulder_width = Math.abs(lShoulder.x - rShoulder.x);
+  // We use shoulder_width as scale reference for the head alignment check.
+  // For distance and sideways, raw frame-relative values are more reliable.
+
   // ── TOO_CLOSE / TOO_FAR ───────────────────────────────────────────────────────
-  // Body height = vertical span from nose to ankle midpoint (in normalized frame)
-  const ankleAvailLeft  = lm(landmarks, 'left_ankle');
-  const ankleAvailRight = lm(landmarks, 'right_ankle');
+  if (lAnkle && rAnkle) {
+    const ankleY     = (lAnkle.y + rAnkle.y) / 2;
+    const bodyHeight = Math.max(ankleY - nose.y, 0.05); // avoid div-by-zero
 
-  if (ankleAvailLeft && ankleAvailRight) {
-    const ankleY = (ankleAvailLeft.y + ankleAvailRight.y) / 2;
-    const bodyHeight = ankleY - nose!.y;
-
-    if (bodyHeight > 0.82) {
+    if (bodyHeight > BODY_HEIGHT_MAX) {
       issues.push('TOO_CLOSE');
-    } else if (bodyHeight < 0.38) {
+    } else if (bodyHeight < BODY_HEIGHT_MIN) {
       issues.push('TOO_FAR');
     }
   }
 
   // ── NOT_SIDEWAYS ─────────────────────────────────────────────────────────────
-  // When sideways: both shoulders near same x → small separation
-  // When facing camera: large separation
-  const shoulderSep = Math.abs(lShoulder!.x - rShoulder!.x);
-  // hip separation as a cross-check
-  const hipSep = Math.abs(lHip!.x - rHip!.x);
+  // When facing camera: large shoulder & hip x-separation
+  // When sideways: both collapse toward same x (small separation)
+  const hipSep = Math.abs(lHip.x - rHip.x);
 
-  // If shoulder separation OR hip separation is large → facing camera, not sideways
-  if (shoulderSep > 0.20 || hipSep > 0.22) {
+  if (shoulder_width > SHOULDER_SEP_SIDEWAYS_MAX || hipSep > HIP_SEP_SIDEWAYS_MAX) {
     issues.push('NOT_SIDEWAYS');
   }
 
   // ── MISALIGNED_HEAD ───────────────────────────────────────────────────────────
-  if (ankleAvailLeft && ankleAvailRight) {
-    const ankleMidX = (ankleAvailLeft.x + ankleAvailRight.x) / 2;
-    const headOffset = Math.abs(nose!.x - ankleMidX);
-    if (headOffset > 0.18) {
+  // Normalize head offset by body_height (scale-invariant)
+  if (lAnkle && rAnkle) {
+    const ankleY     = (lAnkle.y + rAnkle.y) / 2;
+    const bodyHeight = Math.max(ankleY - nose.y, 0.05);
+    const ankleMidX  = (lAnkle.x + rAnkle.x) / 2;
+    const headOffset = Math.abs(nose.x - ankleMidX);
+
+    if (headOffset / bodyHeight > HEAD_ALIGN_THRESHOLD) {
       issues.push('MISALIGNED_HEAD');
     }
   }
 
   // ── UNSTABLE ─────────────────────────────────────────────────────────────────
-  if (prevLandmarks) {
-    const prevNose     = prevLandmarks['nose'];
-    const prevLHip     = prevLandmarks['left_hip'];
-    const prevRHip     = prevLandmarks['right_hip'];
-
-    let velocity = 0;
-    if (prevNose && nose) {
-      velocity += Math.abs(nose.x - prevNose.x) + Math.abs(nose.y - prevNose.y);
-    }
-    if (prevLHip && lHip) {
-      velocity += Math.abs(lHip.x - prevLHip.x) + Math.abs(lHip.y - prevLHip.y);
-    }
-    if (prevRHip && rHip) {
-      velocity += Math.abs(rHip.x - prevRHip.x) + Math.abs(rHip.y - prevRHip.y);
-    }
-
-    // Threshold: 0.06 total motion across 3 landmarks per polling interval (~800ms)
-    if (velocity > 0.06) {
-      issues.push('UNSTABLE');
-    }
-  } else {
-    // First frame — assume unstable until we have history
+  // Use the EMA-smoothed velocity computed by the hook (fed in here)
+  if (smoothed_velocity > UNSTABLE_VELOCITY_THRESHOLD) {
     issues.push('UNSTABLE');
   }
 
   if (issues.length === 0) {
-    return ['ALIGNED'];
+    return { state: 'ALIGNED' };
   }
 
-  return issues;
-}
-
-export function selectCoachingState(states: CoachingState[]): CoachingState {
-  return getHighestPriorityState(states);
+  return { state: getHighestPriorityState(issues) };
 }

@@ -1,173 +1,232 @@
-import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Animated, Easing, Platform } from 'react-native';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, Animated, Easing, Platform,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CoachingState, COACHING_SCRIPTS, STATE_COLORS } from '@/lib/coachingScript';
-import { useCoachingState } from '@/hooks/useCoachingState';
+import { useCoachingState, AlignedStage } from '@/hooks/useCoachingState';
 
-interface CoachingOverlayProps {
-  isActive: boolean;
-  getCameraFrame: () => Promise<string | null>;
-  onReadyToRecord?: () => void;
-}
+// ── Stage messages for ALIGNED progression ────────────────────────────────────
+const ALIGNED_STAGE_MESSAGES: Record<AlignedStage, string> = {
+  0: 'Hold still…',
+  1: 'Almost there…',
+  2: 'Perfect. Let\'s go.',
+};
 
-function AlignedPulse({ color }: { color: string }) {
-  const scale = useRef(new Animated.Value(1)).current;
+const FADE_DURATION = 300; // ms — all transitions
+const FAST_FADE     = 150; // ms — fade out only
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function AlignedPulse({ color, stage }: { color: string; stage: AlignedStage }) {
+  const scale   = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(1)).current;
+  const speed   = stage === 2 ? 400 : stage === 1 ? 600 : 800;
 
   useEffect(() => {
     const anim = Animated.loop(
       Animated.sequence([
         Animated.parallel([
-          Animated.timing(scale, { toValue: 1.08, duration: 600, easing: Easing.ease, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 0.7, duration: 600, easing: Easing.ease, useNativeDriver: true }),
+          Animated.timing(scale,   { toValue: 1.10, duration: speed, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0.65, duration: speed, easing: Easing.out(Easing.ease), useNativeDriver: true }),
         ]),
         Animated.parallel([
-          Animated.timing(scale, { toValue: 1, duration: 600, easing: Easing.ease, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 1, duration: 600, easing: Easing.ease, useNativeDriver: true }),
+          Animated.timing(scale,   { toValue: 1,    duration: speed, easing: Easing.in(Easing.ease),  useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 1,    duration: speed, easing: Easing.in(Easing.ease),  useNativeDriver: true }),
         ]),
       ])
     );
     anim.start();
     return () => anim.stop();
-  }, [scale, opacity]);
+  }, [scale, opacity, speed]);
+
+  const iconName = stage === 2 ? 'checkmark-circle' : 'radio-button-on';
 
   return (
     <Animated.View style={{ transform: [{ scale }], opacity }}>
-      <Ionicons name="checkmark-circle" size={36} color={color} />
+      <Ionicons name={iconName} size={32} color={color} />
     </Animated.View>
   );
 }
 
-function CountdownRing({ color, onDone }: { color: string; onDone: () => void }) {
-  const [count, setCount] = useState(3);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+// Progress ring that fills from 0→1 over the ALIGNED duration
+function AlignedProgressRing({ stage }: { stage: AlignedStage }) {
+  const fillAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-  }, []);
+    Animated.timing(fillAnim, {
+      toValue:  stage === 0 ? 0.33 : stage === 1 ? 0.67 : 1,
+      duration: FADE_DURATION,
+      easing:   Easing.out(Easing.ease),
+      useNativeDriver: false,
+    }).start();
+  }, [stage, fillAnim]);
 
-  useEffect(() => {
-    if (count <= 0) { onDone(); return; }
-    const id = setTimeout(() => setCount(c => c - 1), 1000);
-    return () => clearTimeout(id);
-  }, [count, onDone]);
+  const color = stage === 2 ? '#4CAF50' : '#1B7FE3';
 
   return (
-    <Animated.View style={{ opacity: fadeAnim, alignItems: 'center' }}>
-      <Text style={{ fontSize: 56, fontFamily: 'Outfit_700Bold', color, lineHeight: 60 }}>
-        {count > 0 ? count : '🎯'}
-      </Text>
-      <Text style={{ fontSize: 14, fontFamily: 'Outfit_600SemiBold', color: '#fff', marginTop: 4 }}>
-        Get ready…
-      </Text>
-    </Animated.View>
+    <Animated.View style={{
+      width: fillAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+      height: 3,
+      backgroundColor: color,
+      borderRadius: 2,
+    }} />
   );
 }
 
-export default function CoachingOverlay({ isActive, getCameraFrame, onReadyToRecord }: CoachingOverlayProps) {
-  const { state, isReadyToRecord, frameCount } = useCoachingState(isActive, getCameraFrame);
-  const [showCountdown, setShowCountdown] = useState(false);
+// ── Main component ────────────────────────────────────────────────────────────
 
-  const messageOpacity = useRef(new Animated.Value(1)).current;
-  const prevStateRef   = useRef<CoachingState>('NOT_VISIBLE');
+interface CoachingOverlayProps {
+  isActive:        boolean;
+  getCameraFrame:  () => Promise<string | null>;
+  onReadyToRecord?: () => void;
+}
 
-  const script  = COACHING_SCRIPTS[state];
-  const color   = STATE_COLORS[state];
-  const isReady = state === 'ALIGNED';
+export default function CoachingOverlay({
+  isActive,
+  getCameraFrame,
+  onReadyToRecord,
+}: CoachingOverlayProps) {
+  const { state, messageOverride, alignedStage, isReadyToRecord } =
+    useCoachingState(isActive, getCameraFrame);
 
-  // Fade transition when state changes
+  const didFireRef         = useRef(false);
+  const messageOpacity     = useRef(new Animated.Value(1)).current;
+  const containerOpacity   = useRef(new Animated.Value(0)).current;
+
+  // Display key = what message we actually show
+  const prevDisplayKeyRef  = useRef<string>('');
+  const currentDisplayKey  = state === 'ALIGNED'
+    ? `ALIGNED_${alignedStage}`
+    : (messageOverride ?? state);
+
+  // Mount fade-in
   useEffect(() => {
-    if (prevStateRef.current === state) return;
-    prevStateRef.current = state;
+    if (!isActive) {
+      Animated.timing(containerOpacity, { toValue: 0, duration: FAST_FADE, useNativeDriver: true }).start();
+    } else {
+      Animated.timing(containerOpacity, { toValue: 1, duration: FADE_DURATION, useNativeDriver: true }).start();
+    }
+  }, [isActive, containerOpacity]);
+
+  // Message cross-fade on any display key change
+  useEffect(() => {
+    if (prevDisplayKeyRef.current === currentDisplayKey) return;
+    prevDisplayKeyRef.current = currentDisplayKey;
 
     Animated.sequence([
-      Animated.timing(messageOpacity, { toValue: 0, duration: 120, useNativeDriver: true }),
-      Animated.timing(messageOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.timing(messageOpacity, { toValue: 0, duration: FAST_FADE,   useNativeDriver: true }),
+      Animated.timing(messageOpacity, { toValue: 1, duration: FADE_DURATION, useNativeDriver: true }),
     ]).start();
-  }, [state, messageOpacity]);
+  }, [currentDisplayKey, messageOpacity]);
 
-  // Trigger countdown when ready to record
+  // Fire onReadyToRecord exactly once when stage 2 is reached
   useEffect(() => {
-    if (isReadyToRecord && !showCountdown) {
-      setShowCountdown(true);
+    if (isReadyToRecord && !didFireRef.current) {
+      didFireRef.current = true;
+      // Slight delay so the "Perfect. Let's go." message renders first
+      const tid = setTimeout(() => { onReadyToRecord?.(); }, 350);
+      return () => clearTimeout(tid);
     }
-    if (!isReadyToRecord) {
-      setShowCountdown(false);
-    }
-  }, [isReadyToRecord]);
+    if (!isActive) { didFireRef.current = false; }
+  }, [isReadyToRecord, isActive, onReadyToRecord]);
 
   if (!isActive) return null;
 
-  const barSegments: CoachingState[] = [
-    'NOT_VISIBLE', 'TOO_FAR', 'NOT_SIDEWAYS', 'MISALIGNED_HEAD', 'UNSTABLE', 'ALIGNED',
+  const isAligned    = state === 'ALIGNED';
+  const script       = COACHING_SCRIPTS[state];
+  const color        = STATE_COLORS[state];
+
+  const displayMsg   = isAligned
+    ? ALIGNED_STAGE_MESSAGES[alignedStage]
+    : (messageOverride ?? script.primary);
+
+  const iconName     = isAligned ? undefined : script.icon;
+
+  // Progress dots: Sideways ✓ · Head ✓ · Stable ✓ · Aligned ✓
+  const STEP_STATES: CoachingState[] = ['NOT_SIDEWAYS', 'MISALIGNED_HEAD', 'UNSTABLE', 'ALIGNED'];
+  const PRIORITY_ORDER: CoachingState[] = [
+    'NOT_VISIBLE', 'TOO_CLOSE', 'TOO_FAR', 'NOT_SIDEWAYS', 'MISALIGNED_HEAD', 'UNSTABLE', 'ALIGNED',
   ];
-  const badStates: CoachingState[] = ['NOT_VISIBLE', 'TOO_CLOSE', 'TOO_FAR', 'NOT_SIDEWAYS', 'MISALIGNED_HEAD', 'UNSTABLE'];
-  const isAlignedState = state === 'ALIGNED';
+  const currentRank = PRIORITY_ORDER.indexOf(state);
+
+  function isDotDone(s: CoachingState) {
+    const sRank = PRIORITY_ORDER.indexOf(s);
+    return currentRank > sRank || (state === 'ALIGNED' && alignedStage === 2);
+  }
 
   return (
-    <View style={[styles.container, { pointerEvents: 'none' }]}>
-      {/* Main coaching message */}
+    <Animated.View style={[styles.container, { opacity: containerOpacity }]}>
+
+      {/* ── Main coaching card ─────────────────────────────────────────────── */}
       <View style={styles.messageBox}>
-        <Animated.View style={[styles.messageInner, { opacity: messageOpacity, borderColor: color + '55', backgroundColor: 'rgba(0,0,0,0.72)' }]}>
-          {showCountdown ? (
-            <CountdownRing color={color} onDone={() => { setShowCountdown(false); onReadyToRecord?.(); }} />
-          ) : (
-            <>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                {isAlignedState
-                  ? <AlignedPulse color={color} />
-                  : <Ionicons name={script.icon as any} size={28} color={color} />
-                }
-                <Text style={[styles.messageText, { color }]} numberOfLines={2}>
-                  {script.primary}
-                </Text>
-              </View>
-              {!isAlignedState && frameCount < 3 && (
-                <Text style={styles.warmupText}>Calibrating…</Text>
-              )}
-            </>
+        <Animated.View style={[
+          styles.messageInner,
+          { opacity: messageOpacity, borderColor: color + '60', backgroundColor: 'rgba(8,14,28,0.80)' },
+        ]}>
+
+          <View style={styles.messageRow}>
+            {isAligned ? (
+              <AlignedPulse color={color} stage={alignedStage} />
+            ) : (
+              <Ionicons name={iconName as any} size={26} color={color} />
+            )}
+            <Text style={[styles.messageText, { color }]} numberOfLines={2}>
+              {displayMsg}
+            </Text>
+          </View>
+
+          {/* Aligned progress bar (only during ALIGNED state) */}
+          {isAligned && (
+            <View style={styles.progressTrack}>
+              <AlignedProgressRing stage={alignedStage} />
+            </View>
           )}
+
         </Animated.View>
 
-        {/* Alignment progress dots */}
-        {!showCountdown && (
-          <View style={styles.dotsRow}>
-            {(['NOT_SIDEWAYS', 'MISALIGNED_HEAD', 'UNSTABLE', 'ALIGNED'] as CoachingState[]).map((s) => {
-              const done = !badStates.includes(state) || badStates.indexOf(state) > badStates.indexOf(s as any);
-              const isDone = isAlignedState || (
-                s === 'NOT_SIDEWAYS'    ? !(['NOT_VISIBLE','TOO_CLOSE','TOO_FAR','NOT_SIDEWAYS'] as CoachingState[]).includes(state) :
-                s === 'MISALIGNED_HEAD' ? !(['NOT_VISIBLE','TOO_CLOSE','TOO_FAR','NOT_SIDEWAYS','MISALIGNED_HEAD'] as CoachingState[]).includes(state) :
-                s === 'UNSTABLE'        ? !(['NOT_VISIBLE','TOO_CLOSE','TOO_FAR','NOT_SIDEWAYS','MISALIGNED_HEAD','UNSTABLE'] as CoachingState[]).includes(state) :
-                s === 'ALIGNED'         ? isAlignedState : false
-              );
-              return (
-                <View key={s} style={[
-                  styles.dot,
-                  { backgroundColor: isDone ? STATE_COLORS['ALIGNED'] : (state === s ? color : 'rgba(255,255,255,0.25)') },
-                ]} />
-              );
-            })}
-          </View>
-        )}
+        {/* ── Validation dots ─────────────────────────────────────────────── */}
+        <View style={styles.dotsRow}>
+          {STEP_STATES.map((s) => {
+            const done    = isDotDone(s);
+            const active  = state === s;
+            const dotColor = done   ? STATE_COLORS['ALIGNED']
+                           : active ? color
+                           : 'rgba(255,255,255,0.22)';
+            return (
+              <Animated.View key={s} style={[styles.dot, { backgroundColor: dotColor }]} />
+            );
+          })}
+        </View>
       </View>
 
-      {/* Distance bar (only shown for distance issues) */}
+      {/* ── Distance indicator (TOO_CLOSE / TOO_FAR only) ─────────────────── */}
       {(state === 'TOO_CLOSE' || state === 'TOO_FAR') && (
         <View style={styles.distanceBar}>
-          <Text style={styles.distanceLabel}>{'⟵ Back'}</Text>
+          <Text style={styles.distanceLabel}>{'← Back'}</Text>
           <View style={styles.distanceTrack}>
-            <View style={[styles.distanceZone, { backgroundColor: '#FF6B35' + '55', flex: 0.3 }]} />
-            <View style={[styles.distanceZone, { backgroundColor: '#4CAF50' + '55', flex: 0.4 }]} />
-            <View style={[styles.distanceZone, { backgroundColor: '#FF6B35' + '55', flex: 0.3 }]} />
-            <View style={[styles.distanceArrow, {
-              left: state === 'TOO_CLOSE' ? '5%' : '90%',
+            <View style={[styles.distanceZone, { backgroundColor: '#FF6B3544', flex: 0.3 }]} />
+            <View style={[styles.distanceZone, { backgroundColor: '#4CAF5044', flex: 0.4 }]} />
+            <View style={[styles.distanceZone, { backgroundColor: '#FF6B3544', flex: 0.3 }]} />
+            <View style={[styles.distanceMarker, {
+              left:            state === 'TOO_CLOSE' ? '7%' : '88%',
               backgroundColor: color,
             }]} />
           </View>
-          <Text style={styles.distanceLabel}>{'Closer ⟶'}</Text>
+          <Text style={styles.distanceLabel}>{'Closer →'}</Text>
         </View>
       )}
-    </View>
+
+      {/* ── Sideways hint arrow ───────────────────────────────────────────── */}
+      {state === 'NOT_SIDEWAYS' && (
+        <View style={styles.hintRow}>
+          <Ionicons name="arrow-undo" size={16} color="rgba(255,193,7,0.8)" />
+          <Text style={styles.hintText}>Turn 90° to face sideways</Text>
+          <Ionicons name="arrow-redo" size={16} color="rgba(255,193,7,0.8)" />
+        </View>
+      )}
+
+    </Animated.View>
   );
 }
 
@@ -176,75 +235,97 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0, left: 0, right: 0,
     alignItems: 'center',
-    paddingTop: Platform.OS === 'web' ? 80 : 100,
+    paddingTop: Platform.OS === 'web' ? 82 : 104,
     zIndex: 100,
+    pointerEvents: 'none' as any,
   },
   messageBox: {
     alignItems: 'center',
-    width: '90%',
+    width: '88%',
     maxWidth: 400,
   },
   messageInner: {
     width: '100%',
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1.5,
     paddingHorizontal: 20,
     paddingVertical: 16,
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+  },
+  messageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    width: '100%',
   },
   messageText: {
-    fontSize: 20,
+    fontSize: 19,
     fontFamily: 'Outfit_700Bold',
-    textAlign: 'center',
     flexShrink: 1,
-    lineHeight: 26,
+    lineHeight: 25,
   },
-  warmupText: {
-    fontSize: 12,
-    fontFamily: 'Outfit_500Medium',
-    color: 'rgba(255,255,255,0.5)',
-    marginTop: 2,
+  progressTrack: {
+    width: '100%',
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 2,
+    overflow: 'hidden',
   },
   dotsRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
+    gap: 9,
+    marginTop: 11,
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
   },
   distanceBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     marginTop: 14,
-    width: '85%',
+    width: '84%',
   },
   distanceLabel: {
     fontSize: 11,
     fontFamily: 'Outfit_600SemiBold',
-    color: 'rgba(255,255,255,0.65)',
+    color: 'rgba(255,255,255,0.60)',
   },
   distanceTrack: {
     flex: 1,
-    height: 8,
+    height: 7,
     borderRadius: 4,
     flexDirection: 'row',
-    overflow: 'hidden',
+    overflow: 'visible',
     position: 'relative',
   },
   distanceZone: {
     height: '100%',
   },
-  distanceArrow: {
+  distanceMarker: {
     position: 'absolute',
-    top: -2,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    top: -3,
+    width: 13,
+    height: 13,
+    borderRadius: 7,
     transform: [{ translateX: -6 }],
+  },
+  hintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    backgroundColor: 'rgba(255,193,7,0.12)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  hintText: {
+    fontSize: 12,
+    fontFamily: 'Outfit_600SemiBold',
+    color: 'rgba(255,193,7,0.85)',
   },
 });

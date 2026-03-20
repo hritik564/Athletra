@@ -1,0 +1,92 @@
+Act as a Lead UX + Real-Time Systems Engineer.
+
+We are building the "Active Coaching Layer" for the Cricket Analysis screen. This must feel like a real coach guiding the user live — stable, clear, and non-flickering.
+
+1. Coaching State System (CRITICAL)
+
+Create a priority-based state machine with the following states:
+
+- NOT_VISIBLE
+- TOO_CLOSE
+- TOO_FAR
+- NOT_SIDEWAYS
+- MISALIGNED_HEAD
+- UNSTABLE
+- ALIGNED
+
+Each frame can trigger multiple conditions, but ONLY the highest-priority state should be displayed.
+
+Priority order:
+NOT_VISIBLE > TOO_CLOSE/FAR > NOT_SIDEWAYS > MISALIGNED_HEAD > UNSTABLE > ALIGNED
+
+---
+
+2. Script Manager
+
+Create coachingScript.ts mapping each state to human, coach-like messages:
+
+Examples:
+TOO_CLOSE → "Step back a bit..."
+NOT_SIDEWAYS → "Turn sideways into your stance."
+MISALIGNED_HEAD → "Keep your head centered."
+UNSTABLE → "Hold still..."
+ALIGNED → "Perfect. Let's go."
+
+Also include optional "almost" variants for smoother UX:
+"Almost there… hold it."
+
+---
+
+3. Temporal Stability (ANTI-FLICKER)
+
+Implement state smoothing:
+
+- A new state must be stable for at least 300–500ms before being shown
+- Maintain last stable state to prevent flickering
+- Use EMA smoothing on landmark-derived signals
+
+---
+
+4. Real-Time Logic (Coach’s Eye)
+
+Distance:
+- Use normalized shoulder width relative to frame width
+- Detect TOO_CLOSE / TOO_FAR
+
+Orientation:
+- Use shoulder vs hip rotation to detect sideways stance
+
+Head Alignment:
+- Check if nose is vertically aligned with ankle midpoint
+
+Stability:
+- Measure velocity of key landmarks (nose, hips)
+- If movement < threshold → stable
+
+---
+
+5. Feedback UI
+
+- Large, high-contrast text at top
+- Smooth fade transition between messages (200–300ms)
+- No rapid flickering
+
+---
+
+6. Validation Feedback
+
+When entering ALIGNED state:
+
+- Trigger a subtle success chime (only once per session)
+- Show pulsing text:
+  "Perfect. Let's go."
+
+- Lock state for ~1 second before transitioning to recording
+
+---
+
+7. System Behavior
+
+- Always guide, never overwhelm
+- Only ONE instruction visible at a time
+- Messages must feel calm, confident, and coach-like

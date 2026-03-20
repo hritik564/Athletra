@@ -766,6 +766,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Live coaching: single-frame landmark extraction (no annotation) ───────────
+  app.post("/api/coach/live-pose", express.json({ limit: "8mb" }), async (req: Request, res: Response) => {
+    try {
+      const { image } = req.body;
+      if (!image) return res.status(400).json({ error: "image required" });
+
+      const scriptPath = path.join(import.meta.dirname || __dirname, "pose_detection.py");
+      const input = JSON.stringify({ images: [image], quick: true });
+
+      const result = await new Promise<any>((resolve) => {
+        const proc = spawn("python3", [scriptPath], { stdio: ["pipe", "pipe", "pipe"] });
+        let stdout = "";
+        let stderr = "";
+        proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
+        proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+        proc.on("close", () => {
+          try { resolve(JSON.parse(stdout)); }
+          catch { resolve({ detected: false, error: stderr.slice(0, 200) }); }
+        });
+        proc.stdin.write(input);
+        proc.stdin.end();
+      });
+
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ detected: false, error: "live-pose failed" });
+    }
+  });
+
   app.post("/api/coach/pose-detect", express.json({ limit: "50mb" }), async (req: Request, res: Response) => {
     try {
       const { images } = req.body;

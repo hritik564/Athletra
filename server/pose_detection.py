@@ -610,7 +610,61 @@ def main():
         sys.stdout.flush()
         return
 
-    images = input_data.get("images", [])
+    images    = input_data.get("images", [])
+    quick     = input_data.get("quick", False)   # NEW: skip annotation + extras
+
+    # ── Quick mode: single-image, landmarks only, no annotation ─────────────────
+    if quick and images:
+        img_b64 = images[0]
+        if img_b64.startswith("data:"):
+            img_b64 = img_b64.split(",", 1)[1]
+
+        base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
+        options = vision.PoseLandmarkerOptions(
+            base_options=base_options,
+            output_segmentation_masks=False,
+            num_poses=1,
+            min_pose_detection_confidence=0.45,
+            min_pose_presence_confidence=0.45,
+            min_tracking_confidence=0.45,
+        )
+        try:
+            raw = base64.b64decode(img_b64)
+            arr = np.frombuffer(raw, np.uint8)
+            cv_img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if cv_img is None:
+                sys.stdout.write(json.dumps({"detected": False, "error": "decode_failed"}))
+                sys.stdout.flush()
+                return
+            rgb_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+            mp_img  = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
+            with vision.PoseLandmarker.create_from_options(options) as lmkr:
+                detection = lmkr.detect(mp_img)
+
+            if not detection.pose_landmarks or len(detection.pose_landmarks) == 0:
+                sys.stdout.write(json.dumps({"detected": False}))
+                sys.stdout.flush()
+                return
+
+            lms = detection.pose_landmarks[0]
+            landmarks_out = {}
+            for idx, name in enumerate(LANDMARK_NAMES):
+                if idx < len(lms):
+                    l = lms[idx]
+                    landmarks_out[name] = {
+                        "x": round(l.x, 4),
+                        "y": round(l.y, 4),
+                        "z": round(l.z, 4),
+                        "visibility": round(getattr(l, 'visibility', 1.0), 3),
+                    }
+
+            sys.stdout.write(json.dumps({"detected": True, "landmarks": landmarks_out}))
+            sys.stdout.flush()
+        except Exception as e:
+            sys.stdout.write(json.dumps({"detected": False, "error": str(e)}))
+            sys.stdout.flush()
+        return
+    # ── End quick mode ───────────────────────────────────────────────────────────
 
     base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
     options = vision.PoseLandmarkerOptions(

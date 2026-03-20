@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Platform, ScrollView,
   Image, TextInput, Dimensions, ActivityIndicator, Modal,
@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColors } from '@/contexts/ThemeContext';
 import { useUser } from '@/contexts/UserContext';
 import { getApiUrl } from '@/lib/query-client';
+import CoachingOverlay from '@/components/CoachingOverlay';
 
 const SESSION_HISTORY_KEY = 'technique_analysis_history';
 
@@ -363,6 +364,41 @@ export default function AnalyzeScreen() {
 
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
   const bottomInset = insets.bottom || (Platform.OS === 'web' ? 34 : 0);
+
+  // ── Live coaching frame capture ───────────────────────────────────────────────
+  const isCoachingCapturingRef = useRef(false);
+
+  const getCameraFrame = useCallback(async (): Promise<string | null> => {
+    if (isCoachingCapturingRef.current) return null;
+    isCoachingCapturingRef.current = true;
+    try {
+      if (Platform.OS === 'web') {
+        const video = videoRef.current;
+        if (!video || !video.videoWidth) return null;
+        const canvas = document.createElement('canvas');
+        const scale = 0.35;
+        canvas.width  = Math.round(video.videoWidth  * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', 0.55);
+      } else {
+        if (!cameraRef.current || isTakingPictureRef.current) return null;
+        isTakingPictureRef.current = true;
+        try {
+          const photo = await cameraRef.current.takePictureAsync({ quality: 0.25, base64: true, skipProcessing: true });
+          return photo?.base64 ? `data:image/jpeg;base64,${photo.base64}` : null;
+        } finally {
+          isTakingPictureRef.current = false;
+        }
+      }
+    } catch {
+      return null;
+    } finally {
+      isCoachingCapturingRef.current = false;
+    }
+  }, []);
 
   const takePhoto = async () => {
     if (Platform.OS === 'web') {
@@ -852,6 +888,16 @@ export default function AnalyzeScreen() {
 
     const cameraOverlayContent = (
       <>
+        {/* Active Coaching Layer — only during alignment phase */}
+        <CoachingOverlay
+          isActive={!isCapturing}
+          getCameraFrame={getCameraFrame}
+          onReadyToRecord={() => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            startLiveCapture();
+          }}
+        />
+
         <View style={[styles.cameraOverlay, { paddingTop: (insets.top || webTopInset) + 8 }]}>
           <View style={styles.cameraTopBar}>
             <Pressable style={styles.cameraBtn} onPress={() => { if (isCapturing) stopLiveCapture(); else setMode('select'); }}>
@@ -863,7 +909,7 @@ export default function AnalyzeScreen() {
                   {selectedImages.length} frames · {Math.round((1 - captureProgress / 100) * 15)}s
                 </Text>
               ) : (
-                <Text style={styles.captureHintText}>Hold to capture or tap photo</Text>
+                <Text style={styles.captureHintText}>Align yourself for auto-capture</Text>
               )}
             </View>
             <Pressable style={styles.cameraBtn} onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}>

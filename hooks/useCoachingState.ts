@@ -19,6 +19,10 @@ const EMA_ALPHA          = 0.35;  // velocity smoothing factor
 const STAGE1_MS = 800;   // "Hold still…"  → "Almost there…"
 const STAGE2_MS = 1200;  // "Almost there…" → trigger capture
 
+// Hysteresis — once ALIGNED, keep showing it for at least this long
+// before dropping to a non-ALIGNED state (absorbs brief pose glitches)
+const ALIGNED_GRACE_MS = 250;
+
 // ── Public surface ────────────────────────────────────────────────────────────
 export type AlignedStage = 0 | 1 | 2;   // 0=hold still, 1=almost there, 2=go!
 
@@ -51,9 +55,10 @@ export function useCoachingState(
   const candidateStartRef  = useRef<number>(0);
   const candidateOverride  = useRef<string | undefined>(undefined);
 
-  // Aligned duration tracking
-  const alignedSinceRef   = useRef<number | null>(null);
-  const alignedStageRef   = useRef<AlignedStage>(0);
+  // Aligned duration tracking + hysteresis
+  const alignedSinceRef    = useRef<number | null>(null);
+  const alignedStageRef    = useRef<AlignedStage>(0);
+  const alignedGraceRef    = useRef<number | null>(null); // grace start timestamp
 
   // Signal processing state
   const filterBankRef     = useRef<LandmarkFilterBank>(newFilterBank());
@@ -80,6 +85,7 @@ export function useCoachingState(
     lastKnownRef.current     = {};
     prevFilteredRef.current  = {};
     smoothedVelRef.current   = 0;
+    alignedGraceRef.current  = null;
   }, []);
 
   // ── Aligned stage ticker ──────────────────────────────────────────────────────
@@ -108,22 +114,20 @@ export function useCoachingState(
 
   // ── Candidate → stable state transition ───────────────────────────────────────
   const applyCandidate = useCallback((output: CoachingOutput) => {
-    const now     = Date.now();
-    const nextSt  = output.state;
+    const now    = Date.now();
+    const nextSt = output.state;
 
-    // Reset aligned timer any time we leave ALIGNED
-    if (nextSt !== 'ALIGNED' && stableStateRef.current === 'ALIGNED') {
-      alignedSinceRef.current = null;
-      alignedStageRef.current = 0;
-      setAlignedStage(0);
-      setIsReadyToRecord(false);
-    }
-
-    // Candidate accumulation
+    // Candidate accumulation — only reset if the candidate changed
     if (nextSt !== candidateRef.current) {
       candidateRef.current      = nextSt;
       candidateStartRef.current = now;
       candidateOverride.current = output.messageOverride;
+      // When we're leaving ALIGNED, start the grace timer (not yet)
+      if (stableStateRef.current === 'ALIGNED' && nextSt !== 'ALIGNED') {
+        if (alignedGraceRef.current === null) {
+          alignedGraceRef.current = now;
+        }
+      }
       return;
     }
 
@@ -131,9 +135,28 @@ export function useCoachingState(
     const windowMs = adaptiveWindowMs(smoothedVelRef.current);
     if (now - candidateStartRef.current < windowMs) return;
 
+    // ── Hysteresis: if transitioning OUT of ALIGNED, enforce 250ms grace period
+    if (stableStateRef.current === 'ALIGNED' && nextSt !== 'ALIGNED') {
+      if (alignedGraceRef.current === null) {
+        alignedGraceRef.current = now;
+      }
+      if (now - alignedGraceRef.current < ALIGNED_GRACE_MS) {
+        return; // Grace period not expired — keep showing ALIGNED
+      }
+      // Grace expired — allow transition; reset aligned state
+      alignedGraceRef.current  = null;
+      alignedSinceRef.current  = null;
+      alignedStageRef.current  = 0;
+      setAlignedStage(0);
+      setIsReadyToRecord(false);
+    } else {
+      // Not leaving ALIGNED: reset grace
+      alignedGraceRef.current = null;
+    }
+
     // Candidate is stable — check if it's already the displayed state
     if (nextSt === stableStateRef.current) {
-      // Same state — just update override if changed (e.g. NOT_VISIBLE message variant)
+      // Same state — update override if message variant changed
       if (output.messageOverride !== candidateOverride.current) {
         candidateOverride.current = output.messageOverride;
         setMessageOverride(output.messageOverride);
@@ -147,6 +170,7 @@ export function useCoachingState(
     setMessageOverride(output.messageOverride);
 
     if (nextSt === 'ALIGNED') {
+      alignedGraceRef.current  = null;  // entering ALIGNED, no grace needed
       alignedSinceRef.current  = now;
       alignedStageRef.current  = 0;
       setAlignedStage(0);

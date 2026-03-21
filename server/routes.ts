@@ -85,11 +85,12 @@ interface PoseDetectionOutput {
   results: PoseResult[];
   motion_analysis: MotionAnalysis | null;
   correction_guide: CorrectionGuide | null;
+  analysis_core: Record<string, any> | null;
 }
 
-async function runPoseDetection(images: string[]): Promise<PoseDetectionOutput> {
+async function runPoseDetection(images: string[], sport?: string): Promise<PoseDetectionOutput> {
   const scriptPath = path.join(import.meta.dirname || __dirname, "pose_detection.py");
-  const input = JSON.stringify({ images });
+  const input = JSON.stringify({ images, sport: sport || "general" });
 
   return new Promise((resolve, reject) => {
     const proc = spawn("python3", [scriptPath], {
@@ -111,9 +112,10 @@ async function runPoseDetection(images: string[]): Promise<PoseDetectionOutput> 
       try {
         const result = JSON.parse(stdout);
         resolve({
-          results: result.results || [],
+          results:         result.results        || [],
           motion_analysis: result.motion_analysis || null,
           correction_guide: result.correction_guide || null,
+          analysis_core:   result.analysis_core  || null,
         });
       } catch (e) {
         reject(new Error("Failed to parse pose detection output"));
@@ -843,12 +845,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let annotatedImages = [...images];
 
       let correctionGuide: CorrectionGuide | null = null;
+      let analysisCore: Record<string, any> | null = null;
 
       try {
-        const poseOutput = await runPoseDetection(images);
-        poseResults = poseOutput.results;
+        const poseOutput = await runPoseDetection(images, sportContext);
+        poseResults    = poseOutput.results;
         motionAnalysis = poseOutput.motion_analysis;
         correctionGuide = poseOutput.correction_guide;
+        analysisCore   = poseOutput.analysis_core;
         poseDataText = formatPoseDataForAI(poseResults, motionAnalysis);
 
         annotatedImages = images.map((original: string, i: number) => {
@@ -875,9 +879,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               symmetry: r.symmetry,
             }));
           const sseData: any = { pose_results: posePreview, motion_analysis: motionAnalysis };
-          if (correctionGuide) {
-            sseData.correction_guide = correctionGuide;
-          }
+          if (correctionGuide) sseData.correction_guide = correctionGuide;
+          if (analysisCore && !analysisCore.error) sseData.analysis_core = analysisCore;
           res.write(`data: ${JSON.stringify(sseData)}\n\n`);
         }
       } catch (poseError) {
@@ -890,6 +893,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const hasPoseData = poseDataText.length > 0;
       const hasMotionData = motionAnalysis && !motionAnalysis.error && motionAnalysis.phases && motionAnalysis.phases.length > 0;
+      const hasAnalysisCore = analysisCore && !analysisCore.error && typeof analysisCore.overall_score === 'number';
       const hasPreviousSession = previousSession && previousSession.scores;
 
       const previousSessionText = hasPreviousSession ? `
@@ -907,7 +911,18 @@ FORMAT RULES:
 - For problems, use this exact format: "Problem: [issue] (Measured: X°, Ideal: Y°). Impact: [consequence]. Fix: [one-line correction]."
 - For positives, keep to one line with the data point.
 - Never write paragraphs. Use bullets and short statements only.
-${hasPoseData ? `
+${hasAnalysisCore ? `
+SIGNAL-CENTERED BIOMECHANICAL SCORES (Signal-Centered Analysis Core — use these as primary numeric references):
+Overall score: ${(analysisCore!.overall_score * 10).toFixed(1)}/10 (confidence: ${(analysisCore!.confidence_score * 100).toFixed(0)}%)
+Peak motion detected at frame ${analysisCore!.peak_frame} of ${analysisCore!.n_frames} (analysis window: frames ${analysisCore!.analysis_window?.[0]}–${analysisCore!.analysis_window?.[1]})
+Metrics (0–1, higher is better, already weighted by landmark visibility confidence):
+  • Head Stability: ${(analysisCore!.metrics.head_stability * 10).toFixed(1)}/10${analysisCore!.metrics.head_stability < 0.75 ? ' ⚠ BELOW THRESHOLD' : ''}
+  • Balance Score:  ${(analysisCore!.metrics.balance_score  * 10).toFixed(1)}/10${analysisCore!.metrics.balance_score  < 0.70 ? ' ⚠ BELOW THRESHOLD' : ''}
+  • Hip Rotation:   ${(analysisCore!.metrics.hip_rotation   * 10).toFixed(1)}/10${analysisCore!.metrics.hip_rotation   < 0.60 ? ' ⚠ BELOW THRESHOLD' : ''}
+  • Elbow Control:  ${(analysisCore!.metrics.elbow_control  * 10).toFixed(1)}/10${(analysisCore!.elbow_angle_deg != null) ? ` (measured: ${analysisCore!.elbow_angle_deg}°)` : ''}${analysisCore!.metrics.elbow_control  < 0.65 ? ' ⚠ BELOW THRESHOLD' : ''}
+Primary issue detected: ${analysisCore!.primary_issue}
+INSTRUCTION: Ground your "Technique Score" section in these measured values. Do NOT fabricate scores — use the above as your source of truth.
+` : ''}${hasPoseData ? `
 BIOMECHANICAL DATA:
 You have MediaPipe pose detection data with joint angles and symmetry measurements. Annotated images show skeleton overlays. Joints marked with red circles and warning triangles have detected issues — reference these visual markers in your feedback.${hasMotionData ? `
 

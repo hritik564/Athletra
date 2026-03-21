@@ -11,8 +11,19 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from mediapipe.tasks.python.vision import drawing_utils, drawing_styles, PoseLandmarksConnections
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "pose_landmarker_heavy.task")
+SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
+WORKSPACE   = os.path.dirname(SCRIPT_DIR)
+MODEL_PATH  = os.path.join(SCRIPT_DIR, "models", "pose_landmarker_heavy.task")
+
+# Attempt to import the batch Signal-Centered Analysis Core
+try:
+    if WORKSPACE not in sys.path:
+        sys.path.insert(0, WORKSPACE)
+    from server.athletra_signal_processor import analyze_batch as _analyze_batch
+    _HAS_SIGNAL_PROCESSOR = True
+except Exception:
+    _HAS_SIGNAL_PROCESSOR = False
+    _analyze_batch = None
 
 LANDMARK_NAMES = [
     "nose", "left_eye_inner", "left_eye", "left_eye_outer",
@@ -611,7 +622,8 @@ def main():
         return
 
     images    = input_data.get("images", [])
-    quick     = input_data.get("quick", False)   # NEW: skip annotation + extras
+    quick     = input_data.get("quick", False)
+    sport     = input_data.get("sport", "general")
 
     # ── Quick mode: single-image, landmarks only, no annotation ─────────────────
     if quick and images:
@@ -760,10 +772,19 @@ def main():
                     except Exception:
                         pass
 
+    # ── Signal-Centered Analysis Core (batch) ─────────────────────────────────
+    analysis_core = None
+    if _HAS_SIGNAL_PROCESSOR and _analyze_batch is not None and len(results) >= 3:
+        try:
+            analysis_core = _analyze_batch(results, sport=sport, fps=3.0)
+        except Exception as e:
+            analysis_core = {"error": str(e), "primary_issue": "processor_error"}
+
     output = json.dumps({
-        "results": results,
+        "results":       results,
         "motion_analysis": motion_analysis,
         "correction_guide": correction_guide,
+        "analysis_core": analysis_core,
     })
     sys.stdout.write(output)
     sys.stdout.flush()

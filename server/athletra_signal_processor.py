@@ -608,3 +608,457 @@ class AthletraSignalProcessor:
         self._buffer = []
         self._gate_open = False
         return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Batch Analysis Engine  —  Signal-Centered Analysis Core
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Operates on a COMPLETED capture (all frames available at once).
+# Implements:
+#   1. Hip-centric local coordinate system
+#   2. Shoulder-width normalization (EMA-smoothed scale reference)
+#   3. Adaptive 1 Euro filter (dynamic beta = base_beta + k_vel × smoothed_vel)
+#   4. EMA velocity smoothing (alpha = 0.35) for wrist velocity
+#   5. Peak detection: argmax + minimum threshold + prominence + direction check
+#   6. Analysis window: [peak−6 → peak+3] with Gaussian weighting (σ = 2.0)
+#   7. Metrics: head_stability, balance_score, hip_rotation, elbow_control
+#   8. Confidence weighting: every metric × landmark visibility confidence
+#   9. Primary issue heuristic from metric thresholds
+#  10. Cooldown metadata (1 500 ms) returned with every valid result
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Sport configuration ────────────────────────────────────────────────────────
+_SPORT_CFG: Dict[str, Dict] = {
+    "cricket":   {
+        "lead_wrist":  "left_wrist",
+        "swing_dir":   (1.0, 0.0),           # horizontal (off-side drive)
+        "lead_arm":    ("left_shoulder",  "left_elbow",  "left_wrist"),
+        "elbow_range": (110, 160),
+    },
+    "badminton": {
+        "lead_wrist":  "right_wrist",
+        "swing_dir":   (0.707, 0.707),        # diagonal down-forward (smash)
+        "lead_arm":    ("right_shoulder", "right_elbow", "right_wrist"),
+        "elbow_range": (100, 150),
+    },
+    "skating":   {
+        "lead_wrist":  "left_wrist",
+        "swing_dir":   (1.0, 0.0),            # forward stride
+        "lead_arm":    ("left_shoulder",  "left_elbow",  "left_wrist"),
+        "elbow_range": (90,  150),
+    },
+    "yoga":      {
+        "lead_wrist":  "left_wrist",
+        "swing_dir":   (0.0, 1.0),            # vertical extension
+        "lead_arm":    ("left_shoulder",  "left_elbow",  "left_wrist"),
+        "elbow_range": (150, 180),
+    },
+}
+_SPORT_CFG["general"] = _SPORT_CFG["cricket"]   # sensible default
+
+# ── Landmarks used by the batch pipeline ──────────────────────────────────────
+_BATCH_LM = [
+    "nose",
+    "left_shoulder",  "right_shoulder",
+    "left_elbow",     "right_elbow",
+    "left_wrist",     "right_wrist",
+    "left_hip",       "right_hip",
+    "left_knee",      "right_knee",
+    "left_ankle",     "right_ankle",
+]
+
+# ── Signal / analysis constants ────────────────────────────────────────────────
+_MIN_VEL_THRESHOLD  = 0.008   # normalized units/frame — minimum peak for valid shot
+_PROMINENCE_RATIO   = 1.50    # peak must be ≥ 1.5× median velocity
+_DIR_COS_THRESHOLD  = 0.60    # |cos(θ)| with expected swing direction
+_WIN_PRE            = 6       # frames before peak in analysis window
+_WIN_POST           = 3       # frames after peak
+_GAUSSIAN_SIGMA     = 2.0     # σ for Gaussian weighting
+_HEAD_STD_SCALE     = 0.15    # normalized std that maps to 0.0 head stability
+_BALANCE_STD_SCALE  = 0.30    # normalized hip std that maps to 0.0 balance score
+_HIP_ROT_OPTIMAL    = 0.45    # optimal shoulder–hip rotation (radians)
+_HIP_ROT_WIDTH      = 0.30    # Gaussian σ for hip rotation scoring (radians)
+_ELBOW_TOLERANCE    = 40      # degrees outside optimal range → 0 score
+_COOLDOWN_MS        = 1500    # milliseconds to enforce after valid shot
+_VIS_FLOOR          = 0.50    # visibility threshold for valid landmark
+_BASE_BETA          = 0.007   # 1 Euro base speed coefficient
+_K_VEL              = 0.50    # dynamic beta scaling: β += k_vel × smoothed_vel
+_EMA_VEL_ALPHA      = 0.35    # EMA alpha for velocity smoothing
+_SW_EMA_ALPHA       = 0.15    # EMA alpha for shoulder-width normalization
+
+
+# ── Module-level helpers (pure functions) ─────────────────────────────────────
+
+def _gw(n: int, center: float, sigma: float) -> List[float]:
+    """Un-normalised Gaussian weights; normalised to sum=1."""
+    raw = [math.exp(-0.5 * ((i - center) / sigma) ** 2) for i in range(n)]
+    s   = sum(raw) or 1.0
+    return [r / s for r in raw]
+
+
+def _wmean(values: List[float], weights: List[float]) -> float:
+    ws = sum(weights) or 1.0
+    return sum(v * w for v, w in zip(values, weights)) / ws
+
+
+def _wstd(values: List[float], weights: List[float]) -> float:
+    m   = _wmean(values, weights)
+    ws  = sum(weights) or 1.0
+    var = sum(w * (v - m) ** 2 for v, w in zip(values, weights)) / ws
+    return math.sqrt(max(var, 0.0))
+
+
+def _angle2d(A: Dict, B: Dict, C: Dict) -> float:
+    """2-D angle in degrees at vertex B between rays B→A and B→C."""
+    bax = A["x"] - B["x"];  bay = A["y"] - B["y"]
+    bcx = C["x"] - B["x"];  bcy = C["y"] - B["y"]
+    dot = bax * bcx + bay * bcy
+    mag_ba = math.sqrt(bax * bax + bay * bay)
+    mag_bc = math.sqrt(bcx * bcx + bcy * bcy)
+    if mag_ba < 1e-7 or mag_bc < 1e-7:
+        return 180.0
+    cos_val = max(-1.0, min(1.0, dot / (mag_ba * mag_bc)))
+    return math.degrees(math.acos(cos_val))
+
+
+def _batch_error(reason: str, n_frames: int, peak_vel: float = 0.0) -> Dict[str, Any]:
+    return {
+        "overall_score":   0.0,
+        "primary_issue":   reason,
+        "metrics":         {
+            "head_stability": 0.0,
+            "balance_score":  0.0,
+            "hip_rotation":   0.0,
+            "elbow_control":  0.0,
+        },
+        "confidence_score": 0.0,
+        "peak_frame":       None,
+        "analysis_window":  None,
+        "peak_velocity":    round(peak_vel, 4),
+        "cooldown_ms":      0,
+        "n_frames":         n_frames,
+    }
+
+
+# ── Main entry point ───────────────────────────────────────────────────────────
+
+def analyze_batch(
+    pose_results: List[Dict[str, Any]],
+    sport: str = "general",
+    fps: float = 3.0,
+) -> Dict[str, Any]:
+    """
+    Signal-Centered Analysis Core — batch mode.
+
+    Parameters
+    ----------
+    pose_results : list[dict]
+        Output frames from pose_detection.py main().  Each element has at least
+        ``detected`` (bool) and ``landmarks`` (dict[str, {x,y,z,visibility}]).
+    sport : str
+        One of "cricket", "badminton", "skating", "yoga", "general".
+    fps : float
+        Estimated capture frame-rate used to synthesise filter timestamps.
+
+    Returns
+    -------
+    dict
+        overall_score, primary_issue, metrics, confidence_score,
+        peak_frame (1-indexed), analysis_window, peak_velocity, cooldown_ms.
+    """
+    sport_key  = sport.strip().lower()
+    cfg        = _SPORT_CFG.get(sport_key, _SPORT_CFG["general"])
+
+    # ── 1. Extract valid (detected) frames ─────────────────────────────────────
+    valid = [
+        (orig_i, r)
+        for orig_i, r in enumerate(pose_results)
+        if r.get("detected") and r.get("landmarks")
+    ]
+    N = len(valid)
+    if N < 3:
+        return _batch_error("insufficient_frames", N)
+
+    # ── 2. Build raw per-landmark sequences ────────────────────────────────────
+    seqs: Dict[str, Dict[str, List[float]]] = {
+        name: {"x": [], "y": [], "vis": []} for name in _BATCH_LM
+    }
+    for _, frame in valid:
+        lms = frame["landmarks"]
+        for name in _BATCH_LM:
+            raw = lms.get(name) or {}
+            seqs[name]["x"].append(float(raw.get("x", 0.5)))
+            seqs[name]["y"].append(float(raw.get("y", 0.5)))
+            seqs[name]["vis"].append(float(raw.get("visibility", 0.0)))
+
+    # ── 3. Hip midpoint (global translation reference) + shoulder width ─────────
+    hip_mx = [(seqs["left_hip"]["x"][i]  + seqs["right_hip"]["x"][i])  / 2 for i in range(N)]
+    hip_my = [(seqs["left_hip"]["y"][i]  + seqs["right_hip"]["y"][i])  / 2 for i in range(N)]
+
+    raw_sw = []
+    for i in range(N):
+        dx = seqs["left_shoulder"]["x"][i] - seqs["right_shoulder"]["x"][i]
+        dy = seqs["left_shoulder"]["y"][i] - seqs["right_shoulder"]["y"][i]
+        raw_sw.append(max(math.sqrt(dx * dx + dy * dy), 0.01))
+
+    # EMA-smooth shoulder width (stable scale reference)
+    sw_ema = [raw_sw[0]] * N
+    for i in range(1, N):
+        sw_ema[i] = _SW_EMA_ALPHA * raw_sw[i] + (1 - _SW_EMA_ALPHA) * sw_ema[i - 1]
+
+    # ── 4. Hip-centric transform + shoulder-width normalisation ─────────────────
+    # local_norm[name]['x'][i] = (raw_x - hip_mid_x) / sw_ema
+    local_norm: Dict[str, Dict[str, List[float]]] = {}
+    for name in _BATCH_LM:
+        lx, ly = [], []
+        for i in range(N):
+            sw = max(sw_ema[i], 0.001)
+            lx.append((seqs[name]["x"][i] - hip_mx[i]) / sw)
+            ly.append((seqs[name]["y"][i] - hip_my[i]) / sw)
+        local_norm[name] = {"x": lx, "y": ly}
+
+    # ── 5. Adaptive 1 Euro filter + EMA velocity smoothing ─────────────────────
+    # Dynamic beta is updated BEFORE each frame using PREVIOUS frame's EMA velocity.
+    # This makes the filter more responsive during fast motion and smoother at rest.
+    fbank: Dict[str, Dict[str, _OneEuroFilter]] = {
+        name: {"x": _OneEuroFilter(1.0, _BASE_BETA), "y": _OneEuroFilter(1.0, _BASE_BETA)}
+        for name in _BATCH_LM
+    }
+    fout: Dict[str, Dict[str, float]] = {
+        name: {"x": local_norm[name]["x"][0], "y": local_norm[name]["y"][0]}
+        for name in _BATCH_LM
+    }
+    filtered: Dict[str, Dict[str, List[float]]] = {
+        name: {"x": [], "y": []} for name in _BATCH_LM
+    }
+
+    smoothed_vel_ema = 0.0   # maintains causally across frames
+    prev_wrist_x     = local_norm[cfg["lead_wrist"]]["x"][0]
+    prev_wrist_y     = local_norm[cfg["lead_wrist"]]["y"][0]
+
+    wrist_vel_raw:  List[float] = []
+    wrist_vel_ema:  List[float] = []
+    wrist_dir_x:    List[float] = []
+    wrist_dir_y:    List[float] = []
+
+    for i in range(N):
+        t = float(i) / max(fps, 0.5)
+
+        # Update all filter betas with PREVIOUS frame's smoothed velocity (causal)
+        dyn_beta = _BASE_BETA + _K_VEL * smoothed_vel_ema
+        for name in _BATCH_LM:
+            fbank[name]["x"].beta = dyn_beta
+            fbank[name]["y"].beta = dyn_beta
+
+        # Apply filter per landmark; hold last output when visibility is low
+        for name in _BATCH_LM:
+            vis = seqs[name]["vis"][i]
+            if vis >= _VIS_FLOOR:
+                fx = fbank[name]["x"](local_norm[name]["x"][i], t)
+                fy = fbank[name]["y"](local_norm[name]["y"][i], t)
+                fout[name] = {"x": fx, "y": fy}
+            # else: fout[name] holds last valid output (missing-landmark hold)
+            filtered[name]["x"].append(fout[name]["x"])
+            filtered[name]["y"].append(fout[name]["y"])
+
+        # Wrist velocity from filtered hip-centric positions
+        cur_wx = filtered[cfg["lead_wrist"]]["x"][i]
+        cur_wy = filtered[cfg["lead_wrist"]]["y"][i]
+        dvx    = cur_wx - prev_wrist_x
+        dvy    = cur_wy - prev_wrist_y
+        raw_v  = math.sqrt(dvx * dvx + dvy * dvy)
+
+        wrist_vel_raw.append(raw_v)
+        wrist_dir_x.append(dvx)
+        wrist_dir_y.append(dvy)
+
+        # EMA smooth velocity  (alpha = 0.35)
+        smoothed_vel_ema = _EMA_VEL_ALPHA * raw_v + (1 - _EMA_VEL_ALPHA) * smoothed_vel_ema
+        wrist_vel_ema.append(smoothed_vel_ema)
+
+        prev_wrist_x = cur_wx
+        prev_wrist_y = cur_wy
+
+    # ── 6. Peak detection ──────────────────────────────────────────────────────
+    peak_vel  = max(wrist_vel_ema)
+    peak_idx  = wrist_vel_ema.index(peak_vel)
+
+    # 6a. Minimum velocity threshold  → "no_valid_shot"
+    if peak_vel < _MIN_VEL_THRESHOLD:
+        return _batch_error("no_valid_shot", N, peak_vel)
+
+    # 6b. Prominence check: peak ≥ prominence_ratio × median velocity
+    sorted_vels = sorted(wrist_vel_ema)
+    median_vel  = sorted_vels[N // 2]
+    if peak_vel < _PROMINENCE_RATIO * max(median_vel, 1e-8):
+        return _batch_error("no_prominent_peak", N, peak_vel)
+
+    # 6c. Direction filtering: cosine similarity of peak displacement with expected swing
+    expected_ex, expected_ey = cfg["swing_dir"]
+    pvx = wrist_dir_x[peak_idx]
+    pvy = wrist_dir_y[peak_idx]
+    speed_at_peak = math.sqrt(pvx * pvx + pvy * pvy)
+    if speed_at_peak > 1e-7:
+        cos_sim = abs(pvx * expected_ex + pvy * expected_ey) / speed_at_peak
+        if cos_sim < _DIR_COS_THRESHOLD:
+            return _batch_error("wrong_direction", N, peak_vel)
+
+    # ── 7. Analysis window [peak−6 → peak+3] ──────────────────────────────────
+    win_start   = max(0, peak_idx - _WIN_PRE)
+    win_end     = min(N - 1, peak_idx + _WIN_POST)
+    window      = list(range(win_start, win_end + 1))
+    peak_offset = peak_idx - win_start
+    win_size    = len(window)
+
+    # ── 8. Gaussian weights centred at peak_offset ─────────────────────────────
+    weights = _gw(win_size, float(peak_offset), _GAUSSIAN_SIGMA)
+
+    # ── 9a. Head Stability Score ───────────────────────────────────────────────
+    # nose_local is already hip-centric and normalised by shoulder_width.
+    # Stability = 1 − normalised_weighted_std_dev over analysis window.
+    # Weighted by visibility confidence.
+    nose_x_w  = [filtered["nose"]["x"][i] for i in window]
+    nose_y_w  = [filtered["nose"]["y"][i] for i in window]
+    nose_vis_w = [seqs["nose"]["vis"][i]   for i in window]
+
+    std_nx  = _wstd(nose_x_w, weights)
+    std_ny  = _wstd(nose_y_w, weights)
+    norm_std_n = math.sqrt(std_nx ** 2 + std_ny ** 2)
+
+    raw_head = max(0.0, 1.0 - norm_std_n / _HEAD_STD_SCALE)
+    nose_conf = _wmean(nose_vis_w, weights)
+    head_stability = max(0.0, min(1.0, raw_head * nose_conf))
+
+    # ── 9b. Balance Score ─────────────────────────────────────────────────────
+    # Hip midpoint stability in ORIGINAL frame coordinates removes the
+    # hip-centric transform — we want to see actual lateral body sway.
+    hip_x_w    = [hip_mx[i] for i in window]
+    hip_vis_w  = [
+        (seqs["left_hip"]["vis"][i] + seqs["right_hip"]["vis"][i]) / 2
+        for i in window
+    ]
+    avg_sw  = sum(sw_ema[i] for i in window) / max(win_size, 1)
+    std_hx  = _wstd(hip_x_w, weights)
+    norm_hx = std_hx / max(avg_sw, 0.001)
+
+    raw_balance = max(0.0, 1.0 - norm_hx / _BALANCE_STD_SCALE)
+    hip_conf    = _wmean(hip_vis_w, weights)
+    balance_score = max(0.0, min(1.0, raw_balance * hip_conf))
+
+    # ── 9c. Hip Rotation ──────────────────────────────────────────────────────
+    # Angle delta between shoulder line and hip line over analysis window,
+    # Gaussian-weighted.  Scored using a Gaussian centred at the optimal angle.
+    rot_vals: List[float] = []
+    rot_vis_vals: List[float] = []
+    for idx, i in enumerate(window):
+        ls_x = seqs["left_shoulder"]["x"][i];  ls_y = seqs["left_shoulder"]["y"][i]
+        rs_x = seqs["right_shoulder"]["x"][i];  rs_y = seqs["right_shoulder"]["y"][i]
+        lh_x = seqs["left_hip"]["x"][i];        lh_y = seqs["left_hip"]["y"][i]
+        rh_x = seqs["right_hip"]["x"][i];       rh_y = seqs["right_hip"]["y"][i]
+
+        sh_angle = math.atan2(ls_y - rs_y, ls_x - rs_x)
+        hp_angle = math.atan2(lh_y - rh_y, lh_x - rh_x)
+        delta    = abs(sh_angle - hp_angle)
+        delta    = min(delta, math.pi - delta)   # fold to [0, π/2]
+        rot_vals.append(delta)
+
+        vis_prod = (
+            seqs["left_shoulder"]["vis"][i] *
+            seqs["right_shoulder"]["vis"][i] *
+            seqs["left_hip"]["vis"][i] *
+            seqs["right_hip"]["vis"][i]
+        ) ** 0.25
+        rot_vis_vals.append(vis_prod)
+
+    combined_w = [weights[k] * rot_vis_vals[k] for k in range(win_size)]
+    cw_sum     = sum(combined_w)
+    if cw_sum > 1e-7:
+        avg_rot = sum(r * w for r, w in zip(rot_vals, combined_w)) / cw_sum
+    else:
+        avg_rot = 0.0
+
+    if sport_key == "yoga":
+        # Yoga rewards stability → low rotation → score from 1 (no rot) down to 0
+        raw_hip_rot = max(0.0, 1.0 - avg_rot / (math.pi / 2))
+    else:
+        # Dynamic sports: Gaussian scoring peaked at _HIP_ROT_OPTIMAL
+        raw_hip_rot = math.exp(-0.5 * ((avg_rot - _HIP_ROT_OPTIMAL) / _HIP_ROT_WIDTH) ** 2)
+
+    hip_rot_conf = cw_sum / max(sum(weights), 1e-7)
+    hip_rotation = max(0.0, min(1.0, raw_hip_rot * hip_rot_conf))
+
+    # ── 9d. Lead Elbow Control at peak frame ──────────────────────────────────
+    s_name, e_name, w_name = cfg["lead_arm"]
+    elbow_angle_deg: Optional[float] = None
+    elbow_control   = 0.5   # neutral default when landmarks unavailable
+
+    if peak_idx < N:
+        A = {"x": filtered[s_name]["x"][peak_idx], "y": filtered[s_name]["y"][peak_idx]}
+        B = {"x": filtered[e_name]["x"][peak_idx], "y": filtered[e_name]["y"][peak_idx]}
+        C = {"x": filtered[w_name]["x"][peak_idx], "y": filtered[w_name]["y"][peak_idx]}
+        angle_deg      = _angle2d(A, B, C)
+        elbow_angle_deg = round(angle_deg, 1)
+
+        opt_min, opt_max = cfg["elbow_range"]
+        if opt_min <= angle_deg <= opt_max:
+            raw_elbow = 1.0
+        elif angle_deg < opt_min:
+            raw_elbow = max(0.0, (angle_deg - (opt_min - _ELBOW_TOLERANCE)) / _ELBOW_TOLERANCE)
+        else:
+            raw_elbow = max(0.0, ((opt_max + _ELBOW_TOLERANCE) - angle_deg) / _ELBOW_TOLERANCE)
+
+        arm_conf = (
+            seqs[s_name]["vis"][peak_idx] *
+            seqs[e_name]["vis"][peak_idx] *
+            seqs[w_name]["vis"][peak_idx]
+        ) ** (1.0 / 3.0)
+
+        elbow_control = max(0.0, min(1.0, raw_elbow * arm_conf))
+
+    # ── 10. Confidence-weighted overall score ─────────────────────────────────
+    overall_score = (
+        0.40 * head_stability +
+        0.25 * balance_score  +
+        0.20 * hip_rotation   +
+        0.15 * elbow_control
+    )
+
+    # Global confidence: mean visibility of five core landmarks over analysis window
+    core_lm    = ["nose", "left_shoulder", "right_shoulder", "left_hip", "right_hip"]
+    conf_vals  = [
+        seqs[name]["vis"][i]
+        for name in core_lm
+        for i in window
+    ]
+    confidence_score = sum(conf_vals) / max(len(conf_vals), 1)
+
+    # ── 11. Primary issue heuristic ───────────────────────────────────────────
+    if head_stability < 0.75:
+        primary_issue = "head_instability"
+    elif balance_score < 0.70:
+        primary_issue = "poor_balance"
+    elif hip_rotation < 0.60:
+        primary_issue = "limited_hip_rotation"
+    elif elbow_control < 0.65:
+        primary_issue = "elbow_breakdown"
+    else:
+        primary_issue = "none"
+
+    return {
+        "overall_score":   round(overall_score,    3),
+        "primary_issue":   primary_issue,
+        "metrics": {
+            "head_stability": round(head_stability, 3),
+            "balance_score":  round(balance_score,  3),
+            "hip_rotation":   round(hip_rotation,   3),
+            "elbow_control":  round(elbow_control,  3),
+        },
+        "confidence_score": round(confidence_score, 3),
+        "peak_frame":       peak_idx + 1,       # 1-indexed for UI/AI
+        "analysis_window":  [win_start + 1, win_end + 1],
+        "peak_velocity":    round(peak_vel, 4),
+        "elbow_angle_deg":  elbow_angle_deg,
+        "cooldown_ms":      _COOLDOWN_MS,
+        "n_frames":         N,
+    }

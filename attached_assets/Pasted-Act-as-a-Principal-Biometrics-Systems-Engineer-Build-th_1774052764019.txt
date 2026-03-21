@@ -1,0 +1,160 @@
+Act as a Principal Biometrics & Systems Engineer. Build the 'Athletra Analysis Core' using a Signal-Centered Architecture. This is a production system — all logic must be deterministic, robust, and noise-resistant.
+
+----------------------------------------
+1. The Hardened Signal Pipeline
+----------------------------------------
+
+• Normalization:
+Anchor all landmark coordinates to horizontal shoulder_width.
+
+• Local Anchoring:
+Transform all coordinates into a hip-centric system:
+local_coord = landmark - hip_midpoint
+
+• Adaptive 1 Euro Filter:
+Apply per-landmark per-axis filtering using:
+beta = base_beta + (k_velocity * smoothed_velocity)
+
+• Velocity EMA:
+Compute Exponential Moving Average (alpha = 0.35) for all joint velocities.
+
+• Anti-Lag / Missing Landmarks:
+If landmark visibility < 0.5:
+- Hold last_known_position
+- Apply decay factor: confidence *= (0.9 ^ frames_missing)
+- DO NOT use linear interpolation
+
+----------------------------------------
+2. Signal-Centered Evaluation (The Wedge)
+----------------------------------------
+
+• Peak Detection:
+Use EMA-smoothed wrist velocity to detect motion peak.
+
+Requirements:
+- peak_frame = argmax(smoothed_velocity)
+- Must exceed a minimum velocity threshold
+- Must satisfy prominence (ignore micro spikes)
+
+• Directional Filtering:
+Ensure velocity vector aligns with expected swing direction.
+Reject peaks with incorrect direction (e.g., lateral jitter).
+
+• Analysis Window:
+Extract window around peak:
+[peak_frame - 6 → peak_frame + 3]
+
+• Gaussian Weighting:
+Apply Gaussian weights centered at peak_frame to prioritize impact phase.
+
+• Head Stability Score (W = 0.4):
+Compute stability using:
+
+- nose_local = nose_position - hip_midpoint
+- Remove global translation (body drift)
+- Compute normalized_std_dev over window
+
+Final score:
+head_stability = 1.0 - normalized_std_dev
+
+Scoring:
+> 0.9 = Elite  
+0.75–0.9 = Good  
+< 0.75 = Unstable  
+
+----------------------------------------
+3. Scoring & Logic Engine
+----------------------------------------
+
+• Metrics:
+
+- Balance Score:
+Derived from center-of-mass (hip midpoint) stability over window
+
+- Hip Rotation:
+Angle delta between shoulder line and hip line
+
+- Lead Elbow Control:
+Angle at (shoulder → elbow → wrist) at peak_frame
+
+• Confidence Weighting:
+All metrics MUST be weighted by landmark visibility confidence:
+
+final_score = raw_score * confidence
+
+• Primary Issue Heuristic:
+
+IF head_stability < 0.75:
+    primary_issue = "head_instability"
+
+• Final JSON Output:
+
+{
+  "overall_score": float,
+  "primary_issue": string,
+  "metrics": {
+    "head_stability": float,
+    "balance_score": float,
+    "hip_rotation": float,
+    "elbow_control": float
+  },
+  "confidence_score": float
+}
+
+----------------------------------------
+4. Live Coaching UX Integration
+----------------------------------------
+
+• 3-Stage Validation:
+
+Stage 1 (<800ms):
+"Hold still..."
+
+Stage 2 (~800ms):
+"Almost there..."
+
+Stage 3 (~1200ms):
+"Perfect. Let's go!"
+→ Trigger success chime
+→ Start capture
+
+• Hysteresis:
+Maintain ALIGNED state for 250ms grace period before dropping
+
+----------------------------------------
+5. Robustness & Validation Layer (CRITICAL)
+----------------------------------------
+
+• Peak Validation:
+- Use EMA-smoothed velocity
+- Enforce minimum threshold
+- Enforce prominence to avoid noise spikes
+
+• Direction Check:
+Reject peaks that do not match expected swing direction
+
+• No Swing Detection:
+IF peak_velocity < threshold:
+    RETURN "no_valid_shot"
+
+• Relative Motion Correction:
+All stability metrics must remove global body translation
+(using hip-midpoint reference)
+
+• Confidence Integration:
+All outputs must degrade gracefully with low visibility
+(no hard failures)
+
+• Cooldown Mechanism:
+After detecting a valid shot:
+- Enforce 1.5 second cooldown
+- Ignore new peaks during cooldown
+
+----------------------------------------
+
+STRICT REQUIREMENTS:
+
+- Do NOT simplify any logic
+- Do NOT replace signal-based logic with heuristics
+- Keep implementation modular and deterministic
+- Maintain real-time performance suitability
